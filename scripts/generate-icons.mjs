@@ -1,9 +1,11 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'icons');
+const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const root = join(projectRoot, 'www', 'icons');
+const iosAssets = join(projectRoot, 'ios', 'App', 'App', 'Assets.xcassets');
 const SAMPLES = 4;
 
 const COLORS = {
@@ -11,6 +13,7 @@ const COLORS = {
   bottom: [10, 60, 67],
   cream: [255, 246, 232],
   peach: [242, 166, 90],
+  splash: [10, 60, 67],
 };
 
 const CRC_TABLE = (() => {
@@ -38,16 +41,22 @@ function chunk(type, data) {
   return Buffer.concat([length, body, crc]);
 }
 
-function encodePng(size, pixels) {
+function encodePng(size, pixels, { alpha = true } = {}) {
+  const channels = alpha ? 4 : 3;
   const header = Buffer.alloc(13);
   header.writeUInt32BE(size, 0);
   header.writeUInt32BE(size, 4);
   header[8] = 8;
-  header[9] = 6;
-  const raw = Buffer.alloc((size * 4 + 1) * size);
+  header[9] = alpha ? 6 : 2;
+  const stride = size * channels + 1;
+  const raw = Buffer.alloc(stride * size);
   for (let y = 0; y < size; y += 1) {
-    raw[y * (size * 4 + 1)] = 0;
-    pixels.copy(raw, y * (size * 4 + 1) + 1, y * size * 4, (y + 1) * size * 4);
+    raw[y * stride] = 0;
+    for (let x = 0; x < size; x += 1) {
+      const source = (y * size + x) * 4;
+      const target = y * stride + 1 + x * channels;
+      for (let channel = 0; channel < channels; channel += 1) raw[target + channel] = pixels[source + channel];
+    }
   }
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -87,10 +96,10 @@ function insideDrop(x, y) {
   return Math.abs(x - center.x) <= (y - tipY) * halfAngleTan;
 }
 
-function shade(x, y, { rounded, scale }) {
+function shade(x, y, { rounded, scale, flat }) {
   if (rounded && !insideRoundedRect(x, y, 0.22)) return null;
   const mix = Math.min(1, Math.max(0, y));
-  let color = COLORS.top.map((value, index) => value + (COLORS.bottom[index] - value) * mix);
+  let color = flat || COLORS.top.map((value, index) => value + (COLORS.bottom[index] - value) * mix);
   const ux = 0.5 + (x - 0.5) / scale;
   const uy = 0.5 + (y - 0.5) / scale;
   if (insideRing(ux, uy, 0.29, 0.075)) color = color.map((value, index) => value + (COLORS.cream[index] - value) * 0.2);
@@ -101,15 +110,25 @@ function shade(x, y, { rounded, scale }) {
 
 function render(size, options) {
   const pixels = Buffer.alloc(size * size * 4);
+  const box = options.box || { from: 0, to: size };
+  const span = box.to - box.from;
   for (let py = 0; py < size; py += 1) {
     for (let px = 0; px < size; px += 1) {
+      const offset = (py * size + px) * 4;
+      if (options.flat && (px < box.from || px >= box.to || py < box.from || py >= box.to)) {
+        pixels[offset] = options.flat[0];
+        pixels[offset + 1] = options.flat[1];
+        pixels[offset + 2] = options.flat[2];
+        pixels[offset + 3] = 255;
+        continue;
+      }
       let red = 0;
       let green = 0;
       let blue = 0;
       let coverage = 0;
       for (let sy = 0; sy < SAMPLES; sy += 1) {
         for (let sx = 0; sx < SAMPLES; sx += 1) {
-          const color = shade((px + (sx + 0.5) / SAMPLES) / size, (py + (sy + 0.5) / SAMPLES) / size, options);
+          const color = shade((px - box.from + (sx + 0.5) / SAMPLES) / span, (py - box.from + (sy + 0.5) / SAMPLES) / span, options);
           if (!color) continue;
           red += color[0];
           green += color[1];
@@ -117,7 +136,6 @@ function render(size, options) {
           coverage += 1;
         }
       }
-      const offset = (py * size + px) * 4;
       if (coverage > 0) {
         pixels[offset] = Math.round(red / coverage);
         pixels[offset + 1] = Math.round(green / coverage);
@@ -126,7 +144,7 @@ function render(size, options) {
       pixels[offset + 3] = Math.round((coverage / (SAMPLES * SAMPLES)) * 255);
     }
   }
-  return encodePng(size, pixels);
+  return pixels;
 }
 
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
@@ -152,6 +170,19 @@ const outputs = [
   { file: 'apple-touch-icon.png', size: 180, rounded: false, scale: 0.9 },
 ];
 for (const output of outputs) {
-  writeFileSync(join(root, output.file), render(output.size, output));
+  writeFileSync(join(root, output.file), encodePng(output.size, render(output.size, output)));
   process.stdout.write(`${output.file}\n`);
+}
+
+if (existsSync(iosAssets)) {
+  writeFileSync(join(iosAssets, 'AppIcon.appiconset', 'AppIcon-512@2x.png'), encodePng(1024, render(1024, { rounded: false, scale: 0.9 }), { alpha: false }));
+  process.stdout.write('AppIcon-512@2x.png\n');
+  const splashSize = 2732;
+  const iconSize = 520;
+  const from = Math.round((splashSize - iconSize) / 2);
+  const splash = encodePng(splashSize, render(splashSize, { rounded: false, scale: 1, flat: COLORS.splash, box: { from, to: from + iconSize } }), { alpha: false });
+  for (const name of ['splash-2732x2732.png', 'splash-2732x2732-1.png', 'splash-2732x2732-2.png']) {
+    writeFileSync(join(iosAssets, 'Splash.imageset', name), splash);
+    process.stdout.write(`${name}\n`);
+  }
 }

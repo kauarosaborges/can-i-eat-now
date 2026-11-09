@@ -8,7 +8,7 @@ import {
   hydrationRatio,
   nextReminderMinute,
   totalWaterMl,
-} from '../src/core/hydration.js';
+} from '../www/src/core/hydration.js';
 
 const profile = { weightKg: 70, age: 35, activity: 'sedentary', exerciseMinutes: 0, hotClimate: false };
 

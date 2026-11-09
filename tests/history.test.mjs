@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildHistory, dayFastingHours } from '../src/core/history.js';
+import { buildHistory, dayFastingHours } from '../www/src/core/history.js';
 import { localDate, makeState } from './helpers.mjs';
 
 function dayWithMeals(key, times) {

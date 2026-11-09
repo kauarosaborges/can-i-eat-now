@@ -1,4 +1,4 @@
-import { createDefaultState } from '../src/core/storage.js';
+import { createDefaultState } from '../www/src/core/storage.js';
 
 export const MEAL_NAMES = { breakfast: 'Breakfast', lunch: 'Lunch', snack: 'Snack', dinner: 'Dinner' };
 

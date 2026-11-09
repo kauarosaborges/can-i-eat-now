@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MODIFIED_MEAL_ID, classifyDay } from '../src/core/fasting.js';
-import { buildTimeline, eatMealNow, emptyDayLog, nextMeal, sanitizeMealName, skipMeal } from '../src/core/meals.js';
+import { MODIFIED_MEAL_ID, classifyDay } from '../www/src/core/fasting.js';
+import { buildTimeline, eatMealNow, emptyDayLog, nextMeal, sanitizeMealName, skipMeal } from '../www/src/core/meals.js';
 import { localDate, makeState } from './helpers.mjs';
 
 const DAY = '2026-11-09';

@@ -1,0 +1,52 @@
+import { LOCALE, t } from '../i18n/index.js';
+import { MS_PER_MINUTE, minutesToTime, pad2, splitDuration, weekdayOfKey } from '../core/time.js';
+
+export function formatDuration(ms) {
+  const rounded = Math.ceil(Math.max(0, ms) / MS_PER_MINUTE) * MS_PER_MINUTE;
+  const { hours, minutes } = splitDuration(rounded);
+  if (hours === 0) return t('common.durationMinutes', { m: minutes });
+  return t('common.duration', { h: hours, m: pad2(minutes) });
+}
+
+export function formatClock(ms) {
+  const { hours, minutes, seconds } = splitDuration(ms);
+  return t('common.clock', { h: hours, m: pad2(minutes), s: pad2(seconds) });
+}
+
+export function formatTimeOfDay(minutes) {
+  return minutesToTime(minutes);
+}
+
+export function formatTimestamp(ms) {
+  const date = new Date(ms);
+  return minutesToTime(date.getHours() * 60 + date.getMinutes());
+}
+
+export function formatMl(ml) {
+  if (ml >= 1000) {
+    const liters = (ml / 1000).toLocaleString(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+    return t('common.liters', { value: liters });
+  }
+  return t('common.ml', { value: Math.round(ml) });
+}
+
+export function formatDayShort(dateKey) {
+  const day = Number(dateKey.slice(8, 10));
+  return `${t(`days.short.${weekdayOfKey(dateKey)}`)} ${day}`;
+}
+
+export function formatDayLong(dateKey) {
+  return t(`days.long.${weekdayOfKey(dateKey)}`);
+}
+
+export function formatDateHeading(date) {
+  return new Intl.DateTimeFormat(LOCALE, { weekday: 'long', day: 'numeric', month: 'long' }).format(date);
+}
+
+export function formatPercent(ratio) {
+  return t('common.percent', { value: Math.round(ratio * 100) });
+}
+
+export function formatHours(value) {
+  return value.toLocaleString(LOCALE, { maximumFractionDigits: 1 });
+}

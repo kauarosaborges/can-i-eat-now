@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MODIFIED_MEAL_ID, classifyDay, dayContext, fastState, isAlternateFastingDay } from '../src/core/fasting.js';
-import { dayFastingHours } from '../src/core/history.js';
+import { MODIFIED_MEAL_ID, classifyDay, dayContext, fastState, isAlternateFastingDay } from '../www/src/core/fasting.js';
+import { dayFastingHours } from '../www/src/core/history.js';
 import {
   addWaterEntry,
   buildReminderSchedule,
@@ -10,7 +10,7 @@ import {
   nextReminderMinute,
   removeWaterEntry,
   validateWaterAmount,
-} from '../src/core/hydration.js';
+} from '../www/src/core/hydration.js';
 import {
   buildTimeline,
   eatMealNow,
@@ -21,7 +21,7 @@ import {
   skipMeal,
   undoEatMeal,
   undoSkipMeal,
-} from '../src/core/meals.js';
+} from '../www/src/core/meals.js';
 import {
   BACKUP_KEY_PREFIX,
   STORAGE_KEY,
@@ -29,7 +29,7 @@ import {
   loadStateWithReport,
   mergeSettings,
   resolveNotificationsEnabled,
-} from '../src/core/storage.js';
+} from '../www/src/core/storage.js';
 import { MEAL_NAMES, localDate, makeState } from './helpers.mjs';
 
 function nightState(windowStart = '20:00', preset = '16:8', meals) {

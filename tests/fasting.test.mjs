@@ -7,8 +7,8 @@ import {
   fastProgress,
   fastState,
   isAlternateFastingDay,
-} from '../src/core/fasting.js';
-import { addDaysToKey } from '../src/core/time.js';
+} from '../www/src/core/fasting.js';
+import { addDaysToKey } from '../www/src/core/time.js';
 import { localDate, makeState } from './helpers.mjs';
 
 test('intermittent presets derive the window end', () => {

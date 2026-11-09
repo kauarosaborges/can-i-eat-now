@@ -1,3 +1,7 @@
 .claude/
 node_modules/
 .env
+*.p8
+*.p12
+*.mobileprovision
+AuthKey_*

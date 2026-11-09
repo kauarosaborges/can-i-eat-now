@@ -9,7 +9,7 @@ import {
   minutesToTime,
   timeToMinutes,
   weekdayOfKey,
-} from '../src/core/time.js';
+} from '../www/src/core/time.js';
 
 test('time strings convert to minutes and back', () => {
   assert.equal(timeToMinutes('07:30'), 450);

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STORAGE_KEY, createDefaultState, loadState, parseState, saveState } from '../src/core/storage.js';
+import { STORAGE_KEY, createDefaultState, loadState, parseState, saveState } from '../www/src/core/storage.js';
 import { MEAL_NAMES, localDate } from './helpers.mjs';
 
 const now = localDate('2026-11-09', '10:00');

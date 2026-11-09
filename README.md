@@ -23,7 +23,7 @@ Depois abra `http://localhost:8080`. Sem Python, qualquer servidor estático apo
 
 ## Instalar como PWA no iPhone
 
-1. Abra `https://kauarosaborges.github.io/can-i-eat-now/` no Safari.
+1. Abra `https://staackyz.github.io/can-i-eat-now/` no Safari.
 2. Toque em Compartilhar e depois em Adicionar à Tela de Início.
 
 No PWA, os lembretes do sistema só aparecem com o app aberto ou recém aberto. Para avisos com o app fechado, use o app nativo pelo TestFlight.

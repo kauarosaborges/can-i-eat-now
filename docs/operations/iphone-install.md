@@ -37,7 +37,7 @@ São dois jeitos. O app nativo (TestFlight) é o principal, porque é ele que no
 
 ### 1.4 Colocar os segredos no GitHub
 
-1. Abra github.com/kauarosaborges/can-i-eat-now, vá em **Settings** e depois **Environments**.
+1. Abra github.com/staackyz/can-i-eat-now, vá em **Settings** e depois **Environments**.
 2. Abra o ambiente **testflight** (já existe; se não aparecer, clique em New environment e crie com esse nome).
 3. Em **Deployment branches and tags**, escolha **Selected branches and tags** e adicione só `main`.
 4. Em **Environment secrets**, clique em Add secret e crie os quatro:
@@ -81,7 +81,7 @@ Cada build dura 90 dias. Todo push na `main` gera um novo, e o TestFlight atuali
 
 ## Plano B: web app (PC e iPhone sem TestFlight)
 
-Endereço: https://kauarosaborges.github.io/can-i-eat-now/
+Endereço: https://staackyz.github.io/can-i-eat-now/
 
 - **No PC (Chrome ou Edge):** abra o endereço e clique no ícone de instalar na barra de endereço.
 - **No iPhone:** abra no **Safari**, toque em Compartilhar e depois **Adicionar à Tela de Início**.

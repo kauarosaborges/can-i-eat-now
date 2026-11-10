@@ -14,6 +14,13 @@ São dois jeitos. O app nativo (TestFlight) é o principal, porque é ele que no
 4. Em Description escreva `Can I Eat Now`. Em Bundle ID escolha **Explicit** e escreva `com.staackyz.canieatnow`.
 5. Não marque nenhuma capability (notificação local não precisa de Push). Clique em Continue e Register.
 6. Ainda no site, abra **Membership details** e copie o **Team ID** (10 letras e números). Guarde.
+7. Não crie certificado na mão: a build na nuvem cria sozinha.
+
+### 1.1b Registrar seu iPhone (obrigatório, a assinatura automática exige pelo menos um aparelho)
+
+1. No Windows, instale o app **Apple Devices** pela Microsoft Store (ou o iTunes) e conecte o iPhone no cabo. Toque em Confiar no iPhone.
+2. No Apple Devices, abra o iPhone e clique no número de série até aparecer o **UDID**. Clique com o botão direito e copie.
+3. Em Certificates, Identifiers & Profiles, vá em **Devices**, clique no **+**, escolha iOS, dê um nome e cole o UDID. Clique em Continue e Register.
 
 ### 1.2 Criar o app no App Store Connect
 

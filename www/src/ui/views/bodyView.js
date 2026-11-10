@@ -1,13 +1,13 @@
 import { t } from '../../i18n/index.js';
-import { SEX_OPTIONS, WEIGHT_LIMITS, latestBodyFat, latestWeightKg } from '../../core/body.js';
+import { SEX_OPTIONS, WEIGHT_LIMITS, birthDateRange, isPlausibleBirthDate, latestBodyFat, latestWeightKg } from '../../core/body.js';
 import { effectiveHeightCm, energyHistory, forecastTomorrow, goalEstimate, weightProjection } from '../../core/energy.js';
 import { LIMITS } from '../../core/storage.js';
-import { MS_PER_HOUR, addDaysToKey, clampNumber, dateAtMinutes, isValidDateKey, toDateKey, weekdayOfKey } from '../../core/time.js';
+import { MS_PER_HOUR, addDaysToKey, clampNumber, dateAtMinutes, toDateKey, weekdayOfKey } from '../../core/time.js';
 import { createBarChart } from '../components/barChart.js';
 import { createBalanceBars, createStackedBars, createWeightChart } from '../components/charts.js';
 import { clear, h, icon, pressable, setText } from '../dom.js';
-import { confirmDialog, openOverlay } from '../feedback.js';
-import { field, numberInput } from '../forms.js';
+import { confirmDialog, openOverlay, showToast } from '../feedback.js';
+import { field, numberInput, onPickerCommit } from '../forms.js';
 import { formatDateShort, formatDayShort, formatKcal, formatKg, formatNumber, formatTimestamp } from '../format.js';
 
 const DAY_MS = 24 * MS_PER_HOUR;
@@ -258,8 +258,18 @@ export function createBodyView({ store, bodyActions }) {
     const profile = state.profile;
     const sex = h('select', { class: 'input' }, SEX_OPTIONS.map((value) => h('option', { value, selected: value === profile.sex || null, text: t(`profile.sexes.${value}`) })));
     sex.addEventListener('change', () => bodyActions.updateProfile({ sex: sex.value }));
-    const birth = h('input', { class: 'input', type: 'date', value: profile.birthDate || '' });
-    birth.addEventListener('change', () => bodyActions.updateProfile({ birthDate: isValidDateKey(birth.value) ? birth.value : null }));
+    const birthRange = birthDateRange(new Date());
+    const birth = h('input', { class: 'input', type: 'date', min: birthRange.min, max: birthRange.max, value: profile.birthDate || '' });
+    let savedBirth = profile.birthDate || '';
+    onPickerCommit(birth, () => {
+      if (birth.value !== '' && !isPlausibleBirthDate(birth.value, new Date())) {
+        birth.value = savedBirth;
+        showToast(t('body.birthDateInvalid'));
+        return;
+      }
+      savedBirth = birth.value;
+      bodyActions.updateProfile({ birthDate: birth.value || null });
+    });
     const fat = latestBodyFat(state);
     return h(
       'section',

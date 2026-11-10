@@ -507,6 +507,7 @@ export const ptBR = {
     bodyFat: 'Gordura corporal (%)',
     bodyFatPlaceholder: 'Opcional',
     birthDate: 'Data de nascimento',
+    birthDateInvalid: 'Data fora do esperado. Use uma idade entre 10 e 110 anos.',
     profileHint: 'Usado para estimar o gasto em repouso. Peso e altura também ajustam a meta de água.',
     logTitle: 'Registros de peso',
     logEmpty: 'Nenhum peso registrado.',

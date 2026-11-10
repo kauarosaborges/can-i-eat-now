@@ -1,6 +1,7 @@
 import { ACTIVITY_LEVELS } from './hydration.js';
 import { FASTING_DAY_TYPES, FASTING_MODES, INTERMITTENT_PRESETS, MODIFIED_MEAL_ID } from './fasting.js';
 import { MAX_MEALS, sanitizeMealName } from './meals.js';
+import { ACTIVITY_RETENTION_MS, MAX_ACTIVITY_ENTRIES, SLEEP_KINDS, SLEEP_RETENTION_DAYS, SLEEP_SOURCES } from './sleep.js';
 import {
   clampInteger,
   clampNumber,
@@ -10,7 +11,9 @@ import {
   daysBetween,
 } from './time.js';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+export const SUPPORTED_PREVIOUS_VERSIONS = [1];
+export const MAX_SNACKS_PER_DAY = 30;
 export const STORAGE_KEY = 'canIEatNow.state';
 export const BACKUP_KEY_PREFIX = 'canIEatNow.backup.';
 export const RETENTION_DAYS = 60;
@@ -78,6 +81,8 @@ export function createDefaultState(now, mealNames) {
       glassMl: 250,
     },
     notifications: { enabled: false, kinds: { water: true, mealAllowed: true, windowOpen: true, windowClosing: true } },
+    sleep: { log: [], healthEnabled: false, nightAwakeAt: null },
+    activity: [],
     days: {},
   };
 }
@@ -153,6 +158,52 @@ function sanitizeProfile(input, defaults) {
   };
 }
 
+function sanitizeSnacks(input) {
+  if (!Array.isArray(input)) return [];
+  return input
+    .filter((entry) => isPlainObject(entry) && Number.isFinite(entry.at) && Number.isFinite(entry.minute))
+    .slice(-MAX_SNACKS_PER_DAY)
+    .map((entry, index) => ({
+      id: typeof entry.id === 'string' && ID_PATTERN.test(entry.id) ? entry.id : `s-${Math.round(entry.at).toString(36)}-${index}`,
+      at: entry.at,
+      minute: clampInteger(entry.minute, LIMITS.dayMinute.min, LIMITS.dayMinute.max, 0),
+    }));
+}
+
+function sanitizeSleep(input, now) {
+  const source = isPlainObject(input) ? input : {};
+  const nowMs = now.getTime();
+  const log = Array.isArray(source.log)
+    ? source.log
+        .filter((entry) => isPlainObject(entry) && Number.isFinite(entry.sleptAt) && Number.isFinite(entry.wokeAt) && entry.wokeAt > entry.sleptAt)
+        .filter((entry) => entry.wokeAt - entry.sleptAt <= 20 * 3600000 && nowMs - entry.wokeAt <= SLEEP_RETENTION_DAYS * 86400000)
+        .map((entry) => {
+          const saved = {
+            sleptAt: entry.sleptAt,
+            wokeAt: entry.wokeAt,
+            source: SLEEP_SOURCES.includes(entry.source) ? entry.source : 'inferred',
+            kind: SLEEP_KINDS.includes(entry.kind) ? entry.kind : 'night',
+          };
+          if (isValidDateKey(entry.wakeKey)) saved.wakeKey = entry.wakeKey;
+          return saved;
+        })
+        .slice(-30)
+    : [];
+  return {
+    log,
+    healthEnabled: source.healthEnabled === true,
+    nightAwakeAt: Number.isFinite(source.nightAwakeAt) ? source.nightAwakeAt : null,
+  };
+}
+
+function sanitizeActivity(input, now) {
+  if (!Array.isArray(input)) return [];
+  const nowMs = now.getTime();
+  return [...new Set(input.filter((at) => Number.isFinite(at) && at <= nowMs + 60000 && nowMs - at <= ACTIVITY_RETENTION_MS))]
+    .sort((left, right) => left - right)
+    .slice(-MAX_ACTIVITY_ENTRIES);
+}
+
 function sanitizeDay(input) {
   const source = isPlainObject(input) ? input : {};
   const meals = {};
@@ -191,6 +242,7 @@ function sanitizeDay(input) {
     skips,
     adjustments,
     water,
+    snacks: sanitizeSnacks(source.snacks),
     lastReminder: clampInteger(source.lastReminder, -1, LIMITS.dayMinute.max + 1, -1),
   };
 }
@@ -226,6 +278,8 @@ export function sanitizeState(candidate, defaults, now) {
     meals: sanitizeMeals(candidate.meals, defaults.meals),
     profile: sanitizeProfile(candidate.profile, defaults.profile),
     notifications: sanitizeNotifications(candidate.notifications, defaults.notifications),
+    sleep: sanitizeSleep(candidate.sleep, now),
+    activity: sanitizeActivity(candidate.activity, now),
     days: sanitizeDays(candidate.days, now),
   };
 }
@@ -233,6 +287,7 @@ export function sanitizeState(candidate, defaults, now) {
 export function migrateState(candidate) {
   if (!isPlainObject(candidate)) return null;
   if (candidate.version === SCHEMA_VERSION) return candidate;
+  if (candidate.version === 1) return { ...candidate, version: 2, sleep: { log: [], healthEnabled: false, nightAwakeAt: null }, activity: [] };
   return null;
 }
 

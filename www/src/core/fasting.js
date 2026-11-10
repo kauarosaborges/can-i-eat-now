@@ -172,6 +172,10 @@ export function lastMealTimestamp(days, nowMs) {
       const at = meals[id].eatenAt;
       if (Number.isFinite(at) && at <= nowMs && (latest === null || at > latest)) latest = at;
     }
+    const snacks = days[key] && Array.isArray(days[key].snacks) ? days[key].snacks : [];
+    for (const snack of snacks) {
+      if (Number.isFinite(snack.at) && snack.at <= nowMs && (latest === null || snack.at > latest)) latest = snack.at;
+    }
   }
   return latest;
 }

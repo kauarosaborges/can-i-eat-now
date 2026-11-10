@@ -6,7 +6,7 @@ export const MAX_MEALS = 8;
 export const MAX_MEAL_NAME_LENGTH = 30;
 
 export function emptyDayLog() {
-  return { windowShift: 0, meals: {}, skips: {}, adjustments: {}, water: [], lastReminder: -1 };
+  return { windowShift: 0, meals: {}, skips: {}, adjustments: {}, water: [], snacks: [], lastReminder: -1 };
 }
 
 export function cloneDayLog(dayLog) {
@@ -17,6 +17,7 @@ export function cloneDayLog(dayLog) {
     skips: { ...(source.skips || {}) },
     adjustments: { ...(source.adjustments || {}) },
     water: (source.water || []).map((entry) => ({ ...entry })),
+    snacks: (source.snacks || []).map((entry) => ({ ...entry })),
     lastReminder: Number.isFinite(source.lastReminder) ? source.lastReminder : -1,
   };
 }
@@ -261,4 +262,82 @@ export function sanitizeMealName(value, fallback) {
   const characters = Array.from(value.replace(/[\u0000-\u001f\u007f]/g, '').trim());
   const cleaned = characters.slice(0, MAX_MEAL_NAME_LENGTH).join('').trim();
   return cleaned.length > 0 ? cleaned : fallback;
+}
+
+export function createSnackId(at) {
+  return `s-${Math.round(at).toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
+}
+
+export function logSnack(dayLog, now, minute) {
+  const next = cloneDayLog(dayLog);
+  const at = now.getTime();
+  const snack = { id: createSnackId(at), at, minute: Math.floor(Number.isFinite(minute) ? minute : minutesOfDay(now)) };
+  next.snacks.push(snack);
+  return { dayLog: next, snack };
+}
+
+export function removeSnack(dayLog, id) {
+  const next = cloneDayLog(dayLog);
+  const index = next.snacks.findIndex((snack) => snack.id === id);
+  if (index === -1) return { ok: false, dayLog: next };
+  next.snacks.splice(index, 1);
+  return { ok: true, dayLog: next };
+}
+
+export function eatMealKeepSchedule({ meals, plan, dayLog, mealId, now, minute: contextMinute }) {
+  const log = dayLog || emptyDayLog();
+  const minute = Math.floor(Number.isFinite(contextMinute) ? contextMinute : minutesOfDay(now));
+  const target = mealsForDay(meals, plan).find((entry) => entry.id === mealId);
+  if (!target) return { ok: false, reason: 'unknownMeal' };
+  if (log.meals[mealId]) return { ok: false, reason: 'alreadyDone' };
+  if (isBlockedByFastingDay(target, plan)) return { ok: false, reason: 'fastingDay' };
+  const next = cloneDayLog(log);
+  const eatenAt = now.getTime();
+  next.meals[mealId] = { eatenAt, minute };
+  delete next.skips[mealId];
+  return {
+    ok: true,
+    dayLog: next,
+    undo: { mealId, eatenAt, previousWindowShift: log.windowShift || 0, appliedWindowShift: next.windowShift, adjustments: {}, skips: { [mealId]: log.skips[mealId] || null } },
+  };
+}
+
+export function planChanges(result) {
+  if (!result || !result.ok) return false;
+  return result.adjustments.length > 0 || result.skipped.length > 0 || result.kind === 'advance';
+}
+
+export function eatingChoices({ meals, plan, dayLog, minute, toleranceMinutes, now, lastEatingAt, minGapMinutes }) {
+  const log = dayLog || emptyDayLog();
+  const check = checkEatAt(plan, log, minute, toleranceMinutes);
+  const timeline = buildTimeline(meals, plan, log, minute, toleranceMinutes);
+  const eligible = check.allowed
+    ? timeline.filter((item) => ['allowedNow', 'upcoming', 'missed'].includes(item.status) && item.canEatNow)
+    : [];
+  const choices = eligible.map((item) => ({
+    mealId: item.id,
+    name: item.name,
+    isModified: item.isModified,
+    kcal: item.kcal,
+    scheduledMinutes: item.scheduledMinutes,
+    kind: item.scheduledMinutes > minute ? 'advance' : 'onTime',
+  }));
+  const recommended = choices.find((choice) => choice.kind === 'onTime' && minute - choice.scheduledMinutes <= toleranceMinutes)
+    || choices.find((choice) => choice.kind === 'advance')
+    || null;
+  const nowMs = now instanceof Date ? now.getTime() : null;
+  const recentMinutes = nowMs !== null && Number.isFinite(lastEatingAt) && Number.isFinite(minGapMinutes) && nowMs - lastEatingAt < minGapMinutes * 60000
+    ? Math.max(0, Math.floor((nowMs - lastEatingAt) / 60000))
+    : null;
+  return { choices, recommendedMealId: recommended ? recommended.mealId : null, recentMinutes };
+}
+
+export function proposalSignature(result) {
+  if (!result || !result.ok) return JSON.stringify({ ok: false, reason: result ? result.reason : null });
+  return JSON.stringify({
+    kind: result.kind,
+    windowShift: result.dayLog.windowShift,
+    adjustments: result.adjustments.map((item) => [item.id, item.from, item.to]),
+    skipped: result.skipped.map((item) => item.id),
+  });
 }

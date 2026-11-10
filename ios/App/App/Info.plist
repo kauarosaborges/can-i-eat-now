@@ -22,6 +22,10 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>O Can I Eat Now? lê seus dados de sono do app Saúde para saber quando você acordou e ajustar os lembretes de água e refeições. Esses dados ficam no iPhone e não são enviados para nenhum servidor.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>O Can I Eat Now? não grava dados no app Saúde. Esta permissão nunca é pedida.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>

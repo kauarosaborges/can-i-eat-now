@@ -15,12 +15,18 @@ function mealTimes(dayLog) {
   return meals.map((meal) => meal.eatenAt).filter((at) => Number.isFinite(at)).sort((left, right) => left - right);
 }
 
+function snackTimes(dayLog) {
+  const snacks = dayLog && Array.isArray(dayLog.snacks) ? dayLog.snacks : [];
+  return snacks.map((snack) => snack.at).filter((at) => Number.isFinite(at));
+}
+
 export function eatingIntervals(days) {
   const intervals = [];
+  const duration = MEAL_DURATION_MINUTES * MS_PER_MINUTE;
   for (const key of Object.keys(days)) {
     const times = mealTimes(days[key]);
-    if (times.length === 0) continue;
-    intervals.push({ start: times[0], end: times[times.length - 1] + MEAL_DURATION_MINUTES * MS_PER_MINUTE });
+    if (times.length > 0) intervals.push({ start: times[0], end: times[times.length - 1] + duration });
+    for (const at of snackTimes(days[key])) intervals.push({ start: at, end: at + duration });
   }
   return intervals;
 }
@@ -45,7 +51,7 @@ export function dayFastingHours(state, dateKey, now) {
   const fullEnd = dateAtMinutes(addDaysToKey(dateKey, 1), 0).getTime();
   const isToday = dateKey === toDateKey(now);
   const dayEnd = isToday ? Math.min(fullEnd, now.getTime()) : fullEnd;
-  const allMeals = Object.values(state.days).flatMap((dayLog) => mealTimes(dayLog));
+  const allMeals = Object.values(state.days).flatMap((dayLog) => [...mealTimes(dayLog), ...snackTimes(dayLog)]);
   const mealsCount = allMeals.filter((at) => at >= dayStart && at < dayEnd).length;
   const plan = classifyDay(state.fasting, dateKey);
   const spanMs = Math.max(0, dayEnd - dayStart);

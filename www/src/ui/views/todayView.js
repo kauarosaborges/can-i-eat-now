@@ -1,16 +1,11 @@
 import { t } from '../../i18n/index.js';
-import {
-  FASTING_STAGES,
-  checkEatAt,
-  dayContext,
-  currentStage,
-  fastProgress,
-  fastState,
-  nextStage,
-} from '../../core/fasting.js';
+import { FASTING_STAGES, checkEatAt, currentStage, fastProgress, nextStage } from '../../core/fasting.js';
 import { buildTimeline, nextMeal } from '../../core/meals.js';
-import { MS_PER_HOUR, MS_PER_MINUTE, toDateKey } from '../../core/time.js';
+import { inferSleep, isValidDayWake, nextWakeAfter, nightMode, shouldOfferSleepConfirm, sleepEntryForDay } from '../../core/sleep.js';
+import { MS_PER_HOUR, MS_PER_MINUTE, dateAtMinutes, isValidTime, minutesToTime, timeToMinutes, toDateKey, addDaysToKey } from '../../core/time.js';
+import { eatingVerdict } from '../../core/verdict.js';
 import { createFastRing } from '../components/fastRing.js';
+import { openEatSheet } from '../components/eatSheet.js';
 import { clear, h, icon, pressable, setText } from '../dom.js';
 import { formatClock, formatDateHeading, formatDayLong, formatDuration, formatTimeOfDay, formatTimestamp } from '../format.js';
 
@@ -24,13 +19,21 @@ function statusText(item, plan) {
   return t(`meal.status.${item.status}`);
 }
 
-export function createTodayView({ store, actions }) {
+function timeInputValue(ms) {
+  const date = new Date(ms);
+  return minutesToTime(date.getHours() * 60 + date.getMinutes());
+}
+
+export function createTodayView({ store, actions, sleepActions }) {
   const dateLabel = h('p', { class: 'view-eyebrow' });
   const verdictWord = h('span', { class: 'verdict-word' });
-  const verdictIcon = h('span', { class: 'verdict-icon' });
-  const verdict = h('div', { class: 'verdict', 'aria-live': 'polite' }, h('span', { class: 'verdict-glow', 'aria-hidden': 'true' }), h('span', { class: 'verdict-ripple', 'aria-hidden': 'true' }), verdictIcon, verdictWord);
+  const verdict = h('div', { class: 'verdict', 'aria-live': 'polite' }, h('span', { class: 'verdict-glow', 'aria-hidden': 'true' }), h('span', { class: 'verdict-ripple', 'aria-hidden': 'true' }), verdictWord);
   const verdictHint = h('p', { class: 'verdict-hint' });
   const verdictExtra = h('div', { class: 'verdict-extra' });
+  const ateNowButton = pressable(h('button', { type: 'button', class: 'button button-soft', onClick: () => openEatSheet({ store, actions, preferSnack: nightMode(store.state, new Date()).active }) }, icon('fork'), t('today.ateNow')));
+  const verdictCard = h('section', { class: 'card verdict-card' }, h('p', { class: 'verdict-question', text: t('today.question') }), verdict, verdictHint, verdictExtra, ateNowButton);
+  const nightCard = h('section', { class: 'card night-card', hidden: true });
+  const sleepCard = h('section', { class: 'card sleep-card', hidden: true });
   const ringTitle = h('h2', { class: 'card-title' });
   const ring = createFastRing();
   const stageList = h('ol', { class: 'stage-list' });
@@ -48,7 +51,9 @@ export function createTodayView({ store, actions }) {
       h(
         'div',
         { class: 'split-main' },
-        h('section', { class: 'card verdict-card' }, h('p', { class: 'verdict-question', text: t('today.question') }), verdict, verdictHint, verdictExtra),
+        sleepCard,
+        nightCard,
+        verdictCard,
         h('section', { class: 'card ring-card' }, ringTitle, ring.element, stageNote, stageList, h('p', { class: 'disclaimer', text: t('today.disclaimer') })),
       ),
       h(
@@ -62,20 +67,31 @@ export function createTodayView({ store, actions }) {
   let verdictState = null;
   let timelineSignature = '';
   let extraSignature = '';
+  let nightSignature = '';
+  let sleepSignature = '';
+  let sleepAdjusting = false;
+  let nightDismissedUntil = 0;
 
-  function renderVerdict(canEat, now, fast, plan) {
+  function renderVerdict(result, now, plan) {
+    const canEat = result.canEat;
+    const fast = result.fast;
     const nextState = canEat ? 'yes' : 'no';
     if (nextState !== verdictState) {
       verdict.classList.remove('is-yes', 'is-no', 'is-changing');
       void verdict.offsetWidth;
       verdict.classList.add(canEat ? 'is-yes' : 'is-no');
       if (verdictState !== null) verdict.classList.add('is-changing');
-      clear(verdictIcon);
-      verdictIcon.append(icon(canEat ? 'check' : 'close'));
       setText(verdictWord, canEat ? t('today.yes') : t('today.no'));
       verdictState = nextState;
     }
     const nowMs = now.getTime();
+    if (result.reason === 'recentlyAte') {
+      const ago = formatDuration(result.minutesSince * MS_PER_MINUTE);
+      if (result.availableAt === null) setText(verdictHint, t('today.recentlyAteClosing', { ago }));
+      else if (result.nextMealAt !== null && result.nextMealAt > nowMs) setText(verdictHint, t('today.recentlyAte', { ago, time: formatTimestamp(result.nextMealAt) }));
+      else setText(verdictHint, t('today.recentlyAteGap', { ago, time: formatTimestamp(result.availableAt) }));
+      return;
+    }
     if (canEat) {
       const fullDay = plan.window && plan.window.start === 0 && plan.window.end === 1440;
       setText(verdictHint, fullDay ? t('today.yesAllDay') : t('today.yesHint', { time: formatTimestamp(fast.windowEnd), duration: formatDuration(fast.windowEnd - nowMs) }));
@@ -90,6 +106,123 @@ export function createTodayView({ store, actions }) {
     } else {
       setText(verdictHint, t('today.noHintUnknown'));
     }
+  }
+
+  function renderNight(now) {
+    const state = store.state;
+    const mode = nightMode(state, now);
+    const dismissed = now.getTime() < nightDismissedUntil;
+    const showCard = mode.active && !dismissed;
+    element.classList.toggle('is-night', mode.active);
+    nightCard.hidden = !showCard;
+    verdictCard.hidden = showCard;
+    const signature = `${showCard}:${mode.awake}`;
+    if (signature === nightSignature) return mode;
+    nightSignature = signature;
+    clear(nightCard);
+    if (!showCard) return mode;
+    const buttons = [
+      pressable(
+        h('button', {
+          type: 'button',
+          class: 'button button-ghost',
+          text: t('night.justLooking'),
+          onClick: () => {
+            nightDismissedUntil = nextWakeAfter(state.profile, now).getTime();
+            tick(new Date());
+          },
+        }),
+      ),
+    ];
+    if (!mode.awake) {
+      buttons.push(pressable(h('button', { type: 'button', class: 'button button-soft', text: t('night.cantSleep'), onClick: () => sleepActions.markAwakeAtNight() })));
+    }
+    nightCard.append(
+      h('span', { class: 'night-moon', 'aria-hidden': 'true' }, icon('moon')),
+      h('h2', { class: 'night-title', text: t('night.title') }),
+      h('p', { class: 'night-body', text: mode.awake ? t('night.awakeBody') : t('night.body') }),
+      h('div', { class: 'button-row night-actions' }, buttons),
+      pressable(h('button', { type: 'button', class: 'button button-ghost button-small', onClick: () => openEatSheet({ store, actions, preferSnack: true }) }, icon('fork'), t('today.ateNow'))),
+    );
+    return mode;
+  }
+
+  function renderSleepCard(now, mode) {
+    const state = store.state;
+    const key = toDateKey(now);
+    const entry = sleepEntryForDay(state.sleep.log, state.profile, key);
+    const offer = !mode.active && shouldOfferSleepConfirm(state, now);
+    const showConfirmed = !mode.active && entry && entry.kind !== 'awake' && entry.source !== 'inferred' && now.getTime() - entry.wokeAt < 6 * MS_PER_HOUR;
+    sleepCard.hidden = !offer && !showConfirmed;
+    if (sleepCard.hidden) {
+      sleepSignature = '';
+      return;
+    }
+    const proposal = offer ? inferSleep(state.activity, state.profile, key, now) : entry;
+    const signature = `${offer}:${sleepAdjusting}:${proposal.sleptAt}:${proposal.wokeAt}:${entry ? entry.source : ''}`;
+    if (signature === sleepSignature) return;
+    sleepSignature = signature;
+    clear(sleepCard);
+    const slept = formatTimestamp(proposal.sleptAt);
+    const woke = formatTimestamp(proposal.wokeAt);
+    if (!offer) {
+      sleepCard.append(h('p', { class: 'sleep-line' }, icon('moon'), h('span', { text: entry.source === 'health' ? t('sleepCard.health', { slept, woke }) : t('sleepCard.confirmed', { slept, woke }) })));
+      return;
+    }
+    if (!sleepAdjusting) {
+      sleepCard.append(
+        h('p', { class: 'sleep-question' }, icon('moon'), h('span', { text: t('sleepCard.question', { slept, woke }) })),
+        h('p', { class: 'field-hint', text: t('sleepCard.hint') }),
+        h(
+          'div',
+          { class: 'button-row' },
+          pressable(h('button', { type: 'button', class: 'button button-primary', text: t('sleepCard.confirm'), onClick: () => sleepActions.confirmSleep(proposal.sleptAt, proposal.wokeAt, key) })),
+          pressable(h('button', { type: 'button', class: 'button button-ghost', text: t('sleepCard.adjust'), onClick: () => { sleepAdjusting = true; tick(new Date()); } })),
+          pressable(h('button', { type: 'button', class: 'button button-ghost', text: t('sleepCard.noSleep'), onClick: () => sleepActions.markNoSleep(key) })),
+        ),
+      );
+      return;
+    }
+    const sleptInput = h('input', { class: 'input', type: 'time', value: timeInputValue(proposal.sleptAt), 'aria-label': t('sleepCard.slept') });
+    const wokeInput = h('input', { class: 'input', type: 'time', value: timeInputValue(proposal.wokeAt), 'aria-label': t('sleepCard.woke') });
+    const error = h('p', { class: 'field-error', role: 'alert' });
+    sleepCard.append(
+      h('div', { class: 'grid-2' }, h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('sleepCard.slept') }), sleptInput), h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('sleepCard.woke') }), wokeInput)),
+      error,
+      h(
+        'div',
+        { class: 'button-row' },
+        pressable(
+          h('button', {
+            type: 'button',
+            class: 'button button-primary',
+            text: t('sleepCard.save'),
+            onClick: () => {
+              if (!isValidTime(sleptInput.value) || !isValidTime(wokeInput.value)) {
+                setText(error, t('sleepCard.invalid'));
+                return;
+              }
+              const wokeMinute = timeToMinutes(wokeInput.value);
+              const sleptMinute = timeToMinutes(sleptInput.value);
+              const wokeAt = dateAtMinutes(key, wokeMinute).getTime();
+              const sleptKey = sleptMinute > wokeMinute ? addDaysToKey(key, -1) : key;
+              const sleptAt = dateAtMinutes(sleptKey, sleptMinute).getTime();
+              if (wokeAt <= sleptAt || wokeAt > Date.now() + 5 * MS_PER_MINUTE || wokeAt - sleptAt > 20 * MS_PER_HOUR) {
+                setText(error, t('sleepCard.invalid'));
+                return;
+              }
+              if (!isValidDayWake(store.state.profile, key, wokeAt)) {
+                setText(error, t('sleepCard.invalidWake'));
+                return;
+              }
+              sleepAdjusting = false;
+              sleepActions.confirmSleep(sleptAt, wokeAt, key);
+            },
+          }),
+        ),
+        pressable(h('button', { type: 'button', class: 'button button-ghost', text: t('common.cancel'), onClick: () => { sleepAdjusting = false; tick(new Date()); } })),
+      ),
+    );
   }
 
   function renderExtra(lines) {
@@ -168,6 +301,48 @@ export function createTodayView({ store, actions }) {
     }
   }
 
+  function mealRow(item, plan) {
+    const name = item.isModified ? actions.mealName(item.id, plan) : item.name;
+    const buttons = [];
+    if (ACTIONABLE.includes(item.status) && item.canEatNow) {
+      buttons.push(
+        pressable(
+          h(
+            'button',
+            { type: 'button', class: ['button', 'button-small', item.status === 'allowedNow' ? 'button-primary' : 'button-soft'], onClick: () => openEatSheet({ store, actions, mealId: item.id }) },
+            icon('fork'),
+            t('meal.eatNow'),
+          ),
+        ),
+      );
+    }
+    if (ACTIONABLE.includes(item.status)) {
+      buttons.push(pressable(h('button', { type: 'button', class: 'button button-small button-ghost', onClick: () => actions.skipMeal(item.id) }, t('meal.skip'))));
+    }
+    return h(
+      'li',
+      { class: ['meal-row', `status-${item.status}`] },
+      h(
+        'div',
+        { class: 'meal-time' },
+        h('span', { class: 'meal-clock', text: formatTimeOfDay(item.status === 'done' ? item.eatenMinutes : item.scheduledMinutes) }),
+        item.adjusted && item.status !== 'done' ? h('span', { class: 'meal-planned', text: t('meal.plannedAt', { time: formatTimeOfDay(item.plannedMinutes) }) }) : null,
+      ),
+      h('span', { class: 'meal-node', 'aria-hidden': 'true' }, item.status === 'done' ? icon('check') : null),
+      h('div', { class: 'meal-body' }, h('p', { class: 'meal-name', text: name }), h('span', { class: 'pill', text: statusText(item, plan) }), buttons.length ? h('div', { class: 'meal-actions' }, buttons) : null),
+    );
+  }
+
+  function snackRow(snack) {
+    return h(
+      'li',
+      { class: 'meal-row status-snack' },
+      h('div', { class: 'meal-time' }, h('span', { class: 'meal-clock', text: formatTimeOfDay(snack.minute) })),
+      h('span', { class: 'meal-node', 'aria-hidden': 'true' }, icon('flame')),
+      h('div', { class: 'meal-body' }, h('p', { class: 'meal-name', text: t('today.snackLabel') }), h('span', { class: 'pill', text: t('today.snackStatus', { time: formatTimeOfDay(snack.minute) }) })),
+    );
+  }
+
   function renderTimeline(plan, dayLog, minute) {
     const timeline = buildTimeline(store.state.meals, plan, dayLog, minute, store.state.fasting.toleranceMinutes);
     const upcoming = nextMeal(timeline);
@@ -178,70 +353,38 @@ export function createTodayView({ store, actions }) {
       const wait = (upcoming.scheduledMinutes - minute) * MS_PER_MINUTE;
       setText(nextMealLine, wait <= 0 ? t('today.nextMealNow', { name }) : t('today.nextMeal', { name, time: formatTimeOfDay(upcoming.scheduledMinutes), duration: formatDuration(wait) }));
     }
-    const signature = JSON.stringify(timeline.map((item) => [item.id, item.name, item.status, item.scheduledMinutes, item.canEatNow, item.eatenMinutes]));
+    const snacks = dayLog.snacks || [];
+    const signature = JSON.stringify([timeline.map((item) => [item.id, item.name, item.status, item.scheduledMinutes, item.canEatNow, item.eatenMinutes]), snacks.map((snack) => snack.id)]);
     if (signature === timelineSignature) return;
     timelineSignature = signature;
     clear(timelineList);
-    for (const item of timeline) {
-      const name = item.isModified ? actions.mealName(item.id, plan) : item.name;
-      const buttons = [];
-      if (ACTIONABLE.includes(item.status) && item.canEatNow) {
-        buttons.push(
-          pressable(
-            h(
-              'button',
-              { type: 'button', class: ['button', 'button-small', item.status === 'allowedNow' ? 'button-primary' : 'button-soft'], onClick: () => actions.eatMeal(item.id) },
-              icon('fork'),
-              t('meal.eatNow'),
-            ),
-          ),
-        );
-      }
-      if (ACTIONABLE.includes(item.status)) {
-        buttons.push(pressable(h('button', { type: 'button', class: 'button button-small button-ghost', onClick: () => actions.skipMeal(item.id) }, t('meal.skip'))));
-      }
-      timelineList.append(
-        h(
-          'li',
-          { class: ['meal-row', `status-${item.status}`] },
-          h(
-            'div',
-            { class: 'meal-time' },
-            h('span', { class: 'meal-clock', text: formatTimeOfDay(item.status === 'done' ? item.eatenMinutes : item.scheduledMinutes) }),
-            item.adjusted && item.status !== 'done' ? h('span', { class: 'meal-planned', text: t('meal.plannedAt', { time: formatTimeOfDay(item.plannedMinutes) }) }) : null,
-          ),
-          h('span', { class: 'meal-node', 'aria-hidden': 'true' }, item.status === 'done' ? icon('check') : null),
-          h(
-            'div',
-            { class: 'meal-body' },
-            h('p', { class: 'meal-name', text: name }),
-            h('span', { class: 'pill', text: statusText(item, plan) }),
-            buttons.length ? h('div', { class: 'meal-actions' }, buttons) : null,
-          ),
-        ),
-      );
-    }
+    const rows = [
+      ...timeline.map((item) => ({ minute: item.status === 'done' ? item.eatenMinutes : item.scheduledMinutes, node: mealRow(item, plan) })),
+      ...snacks.map((snack) => ({ minute: snack.minute, node: snackRow(snack) })),
+    ].sort((left, right) => left.minute - right.minute);
+    for (const row of rows) timelineList.append(row.node);
   }
 
   function tick(now) {
     const state = store.state;
-    const context = dayContext(state.fasting, state.days, now);
+    const result = eatingVerdict(state, now);
+    const context = result.context;
     const plan = context.plan;
     const dayLog = store.dayLog(context.key);
-    const fast = fastState(state, now);
-    const canEat = fast.phase === 'eating';
     setText(dateLabel, formatDateHeading(now));
-    renderVerdict(canEat, now, fast, plan);
+    const mode = renderNight(now);
+    renderSleepCard(now, mode);
+    renderVerdict(result, now, plan);
     const extra = [];
     if (plan.fastingType === 'zero') extra.push(t('today.fastingDayZero'));
     if (plan.fastingType === 'modified') extra.push(t('today.fastingDayModified', { kcal: plan.modifiedMeal.kcal, time: formatTimeOfDay(plan.modifiedMeal.minutes) }));
     if (dayLog.windowShift < 0) extra.push(t('today.shiftedNote', { minutes: -dayLog.windowShift }));
-    if (!canEat) {
+    if (result.reason === 'fasting' && !mode.active) {
       const check = checkEatAt(plan, dayLog, context.minute, state.fasting.toleranceMinutes);
       if (check.allowed && check.kind === 'advance') extra.push(t('today.canAdvance', { minutes: check.advanceMinutes }));
     }
     renderExtra(extra);
-    renderRing(now, fast);
+    renderRing(now, result.fast);
     renderTimeline(plan, dayLog, context.minute);
   }
 
@@ -250,6 +393,8 @@ export function createTodayView({ store, actions }) {
     tick,
     refresh() {
       timelineSignature = '';
+      nightSignature = '';
+      sleepSignature = '';
       tick(new Date());
     },
     destroy() {},

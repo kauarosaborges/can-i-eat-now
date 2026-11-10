@@ -49,10 +49,10 @@ export function showToast(message, options = {}) {
   return dismiss;
 }
 
-export function openOverlay({ className, content, onClose, labelledBy }) {
+export function openOverlay({ className, content, onClose, labelledBy, variant }) {
   const previousFocus = document.activeElement;
   const panel = h('div', { class: ['overlay-panel', className], role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': labelledBy || null, tabindex: '-1' }, content);
-  const backdrop = h('div', { class: 'overlay' }, panel);
+  const backdrop = h('div', { class: ['overlay', variant === 'sheet' ? 'overlay-sheet' : null] }, panel);
   let closed = false;
   const close = (result) => {
     if (closed) return;

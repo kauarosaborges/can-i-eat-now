@@ -12,6 +12,7 @@ export const MIN_REMINDER_INTERVAL = 60;
 export const MAX_REMINDER_INTERVAL = 90;
 export const REMINDER_DUE_WINDOW_MINUTES = 30;
 export const QUICK_AMOUNTS_ML = [150, 250, 500];
+export const QUIET_BEFORE_SLEEP_MINUTES = 30;
 export const CUSTOM_WATER_LIMITS = { min: 50, max: 2000 };
 
 export function baseMlPerKgForAge(age) {
@@ -66,13 +67,16 @@ export function awakeSpan(wakeTime, sleepTime) {
   return { wake, sleep, minutes: sleep - wake };
 }
 
-export function buildReminderSchedule({ goalMl, glassMl, wakeTime, sleepTime }) {
-  const span = awakeSpan(wakeTime, sleepTime);
+export function buildReminderSchedule({ goalMl, glassMl, wakeTime, sleepTime, wakeMinute }) {
+  const planned = awakeSpan(wakeTime, sleepTime);
+  const wake = Number.isFinite(wakeMinute) ? Math.min(Math.max(wakeMinute, planned.wake - MINUTES_PER_DAY / 2), planned.sleep - QUIET_BEFORE_SLEEP_MINUTES) : planned.wake;
+  const span = { wake, sleep: planned.sleep, minutes: Math.max(0, planned.sleep - wake) };
+  const lastAllowed = span.sleep - QUIET_BEFORE_SLEEP_MINUTES;
   const glasses = Math.max(1, Math.ceil(goalMl / glassMl));
   const idealInterval = span.minutes / glasses;
   const intervalMinutes = Math.round(clamp(idealInterval, MIN_REMINDER_INTERVAL, MAX_REMINDER_INTERVAL));
   const times = [];
-  for (let at = span.wake + intervalMinutes; at < span.sleep; at += intervalMinutes) times.push(at);
+  for (let at = span.wake + intervalMinutes; at <= lastAllowed; at += intervalMinutes) times.push(at);
   const count = Math.max(1, times.length);
   return {
     intervalMinutes,

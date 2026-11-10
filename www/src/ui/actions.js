@@ -1,7 +1,7 @@
 import { t } from '../i18n/index.js';
 import { MODIFIED_MEAL_ID, classifyDay, dayContext } from '../core/fasting.js';
 import { addWaterEntry, computeDailyGoal, createWaterEntryId, hydrationDayContext, removeWaterEntry, totalWaterMl } from '../core/hydration.js';
-import { eatMealNow, skipMeal as skipMealInLog, undoEatMeal, undoSkipMeal } from '../core/meals.js';
+import { eatMealKeepSchedule, eatMealNow, logSnack, planChanges, proposalSignature, removeSnack, skipMeal as skipMealInLog, undoEatMeal, undoSkipMeal } from '../core/meals.js';
 import { LIMITS } from '../core/storage.js';
 import { clampInteger } from '../core/time.js';
 import { showToast } from './feedback.js';
@@ -53,11 +53,11 @@ export function createActions(store) {
   return {
     mealName,
     mealContext,
-    eatMeal(mealId) {
+    prepareMeal(mealId) {
       const now = new Date();
       const state = store.state;
       const context = dayContext(state.fasting, state.days, now);
-      const result = eatMealNow({
+      const input = {
         meals: state.meals,
         plan: context.plan,
         dayLog: store.dayLog(context.key),
@@ -66,11 +66,21 @@ export function createActions(store) {
         minute: context.minute,
         toleranceMinutes: state.fasting.toleranceMinutes,
         minGapMinutes: state.fasting.minGapMinutes,
-      });
+      };
+      const full = eatMealNow(input);
+      return { mealId, context, full, keep: full.ok ? eatMealKeepSchedule(input) : full, changes: planChanges(full) };
+    },
+    applyMeal(mealId, variant, shownSignature) {
+      const prepared = this.prepareMeal(mealId);
+      const result = variant === 'keep' ? prepared.keep : prepared.full;
+      if (variant !== 'keep' && shownSignature !== undefined && proposalSignature(prepared.full) !== shownSignature) {
+        return { applied: false, changed: true, prepared };
+      }
       if (!result.ok) {
         showToast(refusalMessage(result), { tone: 'warning' });
-        return false;
+        return { applied: false, changed: false, prepared };
       }
+      const { context } = prepared;
       haptic('MEDIUM');
       store.setDayLog(context.key, result.dayLog, 'meal');
       const name = mealName(mealId, context.plan);
@@ -78,12 +88,20 @@ export function createActions(store) {
         tone: 'success',
         action: undoAction(context.key, (log) => undoEatMeal(log, result.undo)),
       });
-      const notes = [];
-      if (result.kind === 'advance') notes.push(t('toast.advanced', { minutes: result.advanceMinutes }));
-      if (result.kind === 'late') notes.push(t('toast.late', { minutes: result.lateMinutes }));
-      for (const item of result.adjustments) notes.push(t('toast.adjusted', { name: item.name, time: formatTimeOfDay(item.to) }));
-      for (const item of result.skipped) notes.push(t('toast.skippedNoFit', { name: item.name }));
-      if (notes.length > 0) showToast(notes.join(' '), { tone: result.kind === 'inside' ? 'info' : 'warning' });
+      if (variant === 'keep' && prepared.changes) showToast(t('toast.scheduleKept'), { tone: 'info' });
+      if (variant !== 'keep' && result.kind === 'late') showToast(t('toast.late', { minutes: result.lateMinutes }), { tone: 'warning' });
+      return { applied: true, changed: false, prepared };
+    },
+    snackNow() {
+      const now = new Date();
+      const context = mealContext();
+      const { dayLog, snack } = logSnack(store.dayLog(context.key), now, context.minute);
+      haptic('MEDIUM');
+      store.setDayLog(context.key, dayLog, 'meal');
+      showToast(t('toast.snackLogged', { time: formatTimeOfDay(snack.minute) }), {
+        tone: 'success',
+        action: undoAction(context.key, (log) => removeSnack(log, snack.id)),
+      });
       return true;
     },
     skipMeal(mealId) {

@@ -39,6 +39,14 @@ No app nativo, o plano de notificações (`www/src/core/notificationPlan.js`) ag
 
 Cada tipo pode ser desligado em Ajustes, Lembretes. O plano é refeito a cada mudança, ao abrir o app e ao voltar para ele. Com o app aberto, o lembrete de água aparece como aviso do sistema e também na tela, e registrar por um dos dois limpa o outro. Se o app ficar mais de quatro dias sem ser aberto (ou os 60 avisos acabarem antes), os avisos param até a próxima abertura.
 
+## Refeições fora de hora e sono
+
+- **Comi agora:** registra qualquer coisa que você comeu. Dá para marcar como lanche fora de hora (não muda nenhum horário) ou como uma refeição adiantada. No segundo caso o app mostra como o resto do dia ficaria e só muda com Confirmar; Manter horários registra a refeição sem mexer no resto.
+- Depois de comer, a resposta fica NÃO pelo intervalo mínimo entre refeições, e o contador do jejum recomeça do último registro.
+- **Modo noite:** dentro do horário de sono configurado, a tela Hoje mostra um aviso calmo, sem lembretes de água na tela. "Não consigo dormir" marca que você está acordado sem começar o dia de água.
+- **Sono:** pela manhã o app estima quando você dormiu e acordou pelo uso do próprio app (só os horários de abertura, guardados por 3 dias no aparelho) e pede uma confirmação. Com o horário confirmado, o dia de água e os avisos começam na hora em que você acordou de verdade.
+- **App Saúde (só no iPhone):** em Ajustes, Sono, "Usar sono do app Saúde" lê apenas os dados de sono (leitura, nunca escrita). Quando existe sono no app Saúde, ele vale mais que a estimativa e o app não pergunta.
+
 ## Pipeline
 
 - Push na `main` roda os testes e publica `www/` no GitHub Pages (`pages.yml`).
@@ -52,7 +60,8 @@ Cada tipo pode ser desligado em Ajustes, Lembretes. O plano é refeito a cada mu
 
 ### App Store Connect e Apple Developer
 
-1. Em Certificates, Identifiers & Profiles, Identifiers, registre o App ID explícito `com.staackyz.canieatnow` (sem capabilities extras: notificação local não precisa de Push Notifications).
+1. Em Certificates, Identifiers & Profiles, Identifiers, registre o App ID explícito `com.staackyz.canieatnow`. Notificação local não precisa de Push Notifications.
+   - **HealthKit (obrigatório desde a leitura de sono):** abra o identifier `com.staackyz.canieatnow`, marque **HealthKit** e clique em **Save** antes do próximo build. Sem isso a assinatura automática falha, porque o app agora pede o entitlement `com.apple.developer.healthkit` (`ios/App/App/App.entitlements`).
 2. Em App Store Connect, Apps, crie o app: plataforma iOS, nome "Can I Eat Now?" (ou outro disponível), idioma principal Português (Brasil), bundle ID `com.staackyz.canieatnow`, SKU qualquer, por exemplo `can-i-eat-now`.
 3. Em Users and Access, Integrations, App Store Connect API, Team Keys, gere uma chave com a função App Manager e marque Access to Certificates, Identifiers & Profiles. Ela precisa criar o certificado de distribuição e o perfil automaticamente. Baixe o arquivo `.p8` (só dá para baixar uma vez) e anote o Key ID e o Issuer ID. Só troque para uma chave Admin se o build falhar com erro de permissão na assinatura.
 4. Anote o Team ID em developer.apple.com, Membership details.

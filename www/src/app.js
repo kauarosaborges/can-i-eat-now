@@ -1,5 +1,6 @@
 import { t } from './i18n/index.js';
-import { buildReminderSchedule, computeDailyGoal, dueReminder, hydrationDayContext } from './core/hydration.js';
+import { dueReminder, hydrationDayContext } from './core/hydration.js';
+import { nightMode, waterScheduleFor } from './core/sleep.js';
 import { resolveNotificationsEnabled } from './core/storage.js';
 import { toDateKey } from './core/time.js';
 import { createActions } from './ui/actions.js';
@@ -10,6 +11,7 @@ import { formatMl } from './ui/format.js';
 import { createNativeNotifications } from './ui/nativeNotifications.js';
 import { permissionState, setNativeBackend, showSystemNotification } from './ui/notifications.js';
 import { isNative } from './ui/platform.js';
+import { createSleepActions } from './ui/sleepActions.js';
 import { createStore } from './ui/store.js';
 import { createHistoryView } from './ui/views/historyView.js';
 import { openOnboarding } from './ui/views/onboarding.js';
@@ -26,6 +28,7 @@ const ROUTES = [
 
 const store = createStore();
 const actions = createActions(store);
+const sleepActions = createSleepActions(store);
 const nativeNotifications = isNative()
   ? createNativeNotifications({
       store,
@@ -78,7 +81,7 @@ function showRoute(route) {
   const nextIndex = ROUTES.indexOf(route);
   const previousView = activeView;
   activeRoute = route;
-  activeView = route.create({ store, actions, openOnboarding: startOnboarding });
+  activeView = route.create({ store, actions, sleepActions, openOnboarding: startOnboarding });
   const element = activeView.element;
   const reduced = prefersReducedMotion();
   if (previousView) {
@@ -110,8 +113,8 @@ function checkReminders(now) {
   const checkKey = `${context.key}:${minute}`;
   if (checkKey === lastReminderCheck) return;
   lastReminderCheck = checkKey;
-  const goal = computeDailyGoal(state.profile).goalMl;
-  const schedule = buildReminderSchedule({ goalMl: goal, glassMl: state.profile.glassMl, wakeTime: state.profile.wakeTime, sleepTime: state.profile.sleepTime });
+  if (nightMode(state, now).active) return;
+  const schedule = waterScheduleFor(state, context.key);
   const dayLog = store.dayLog(context.key);
   const due = dueReminder(schedule.times, minute, dayLog.lastReminder);
   if (due === null) return;
@@ -171,13 +174,14 @@ store.subscribe((state, reason) => {
     startOnboarding();
     return;
   }
+  if (reason === 'activity') return;
   if (reason === 'external') showToast(t('toast.syncedFromOtherTab'));
   if (activeView) activeView.refresh(reason);
 });
 
 if (nativeNotifications) {
   store.subscribe((state, reason) => {
-    if (reason !== 'reminder') nativeNotifications.schedule();
+    if (reason !== 'reminder' && reason !== 'activity') nativeNotifications.schedule();
   });
   nativeNotifications.refreshPermission().then(() => nativeNotifications.schedule());
 }
@@ -185,10 +189,16 @@ if (nativeNotifications) {
 window.addEventListener('hashchange', () => showRoute(routeFromHash()));
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
+  sleepActions.recordActivity();
+  sleepActions.syncHealth();
   tick();
   if (nativeNotifications) nativeNotifications.refreshPermission().then(() => nativeNotifications.schedule());
 });
 
+document.addEventListener('pointerdown', () => sleepActions.recordActivity(), { passive: true });
+
+sleepActions.recordActivity();
+sleepActions.syncHealth(true);
 showRoute(routeFromHash());
 setInterval(tick, 1000);
 if (!store.state.onboarded) startOnboarding();

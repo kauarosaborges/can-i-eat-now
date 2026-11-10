@@ -53,9 +53,23 @@ export function numberInput({ value, limits, step = 1, onCommit }) {
   return input;
 }
 
+export function onPickerCommit(input, handler) {
+  let committed = input.value;
+  const commitIfChanged = () => {
+    if (input.value === committed) return;
+    committed = input.value;
+    handler();
+    committed = input.value;
+  };
+  input.addEventListener('change', () => {
+    if (document.activeElement !== input) commitIfChanged();
+  });
+  input.addEventListener('blur', commitIfChanged);
+}
+
 export function timeInput({ value, onCommit }) {
   const input = h('input', { class: 'input', type: 'time', value, step: 300 });
-  input.addEventListener('change', () => {
+  onPickerCommit(input, () => {
     const next = sanitizeTime(input.value, input.dataset.previous || value);
     input.value = next;
     input.dataset.previous = next;
@@ -244,7 +258,7 @@ function alternateDetails(draft, commit) {
     );
   };
   const dateInput = h('input', { class: 'input', type: 'date', value: settings.cycleStart });
-  dateInput.addEventListener('change', () => {
+  onPickerCommit(dateInput, () => {
     if (isValidDateKey(dateInput.value)) settings.cycleStart = dateInput.value;
     dateInput.value = settings.cycleStart;
     refreshToday();

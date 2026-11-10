@@ -180,7 +180,33 @@ store.subscribe((state, reason) => {
   }
   if (reason === 'activity') return;
   if (reason === 'external') showToast(t('toast.syncedFromOtherTab'));
-  if (activeView) activeView.refresh(reason);
+  refreshUnlessEditing(reason);
+});
+
+let deferredRefresh = null;
+
+function isEditingField() {
+  const element = document.activeElement;
+  return Boolean(element && element.matches && element.matches('input:not([type=checkbox]), select, textarea'));
+}
+
+function refreshUnlessEditing(reason) {
+  if (!activeView) return;
+  if (isEditingField()) {
+    deferredRefresh = reason;
+    return;
+  }
+  activeView.refresh(reason);
+}
+
+document.addEventListener('focusout', () => {
+  if (deferredRefresh === null) return;
+  setTimeout(() => {
+    if (deferredRefresh === null || isEditingField()) return;
+    const reason = deferredRefresh;
+    deferredRefresh = null;
+    if (activeView) activeView.refresh(reason);
+  }, 0);
 });
 
 if (nativeNotifications) {

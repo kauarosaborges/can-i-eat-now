@@ -63,8 +63,25 @@ export function latestBodyFat(state) {
   return fat.reduce((latest, entry) => (entry.at > latest.at ? entry : latest), fat[0]).pct;
 }
 
+export const BIRTH_AGE_LIMITS = { min: 10, max: 110 };
+
+function shiftYears(now, years) {
+  const shifted = new Date(now.getFullYear() - years, now.getMonth(), now.getDate());
+  return toDateKey(shifted);
+}
+
+export function birthDateRange(now) {
+  return { min: shiftYears(now, BIRTH_AGE_LIMITS.max), max: shiftYears(now, BIRTH_AGE_LIMITS.min) };
+}
+
+export function isPlausibleBirthDate(value, now) {
+  if (!isValidDateKey(value)) return false;
+  const range = birthDateRange(now);
+  return value >= range.min && value <= range.max;
+}
+
 export function ageOn(profile, now) {
-  if (isValidDateKey(profile.birthDate)) {
+  if (isPlausibleBirthDate(profile.birthDate, now)) {
     const [year, month, day] = profile.birthDate.split('-').map(Number);
     let age = now.getFullYear() - year;
     if (now.getMonth() + 1 < month || (now.getMonth() + 1 === month && now.getDate() < day)) age -= 1;

@@ -2,16 +2,26 @@ import { t } from '../../i18n/index.js';
 import { SEX_OPTIONS, WEIGHT_LIMITS, birthDateRange, isPlausibleBirthDate, latestBodyFat, latestWeightKg } from '../../core/body.js';
 import { effectiveHeightCm, energyHistory, forecastTomorrow, goalEstimate, weightProjection } from '../../core/energy.js';
 import { LIMITS } from '../../core/storage.js';
+import { dailyMetric } from '../../core/summary.js';
 import { MS_PER_HOUR, addDaysToKey, clampNumber, dateAtMinutes, toDateKey, weekdayOfKey } from '../../core/time.js';
 import { createBarChart } from '../components/barChart.js';
 import { createBalanceBars, createStackedBars, createWeightChart } from '../components/charts.js';
 import { clear, h, icon, pressable, setText } from '../dom.js';
 import { confirmDialog, openOverlay, showToast } from '../feedback.js';
-import { field, numberInput, onPickerCommit } from '../forms.js';
-import { formatDateShort, formatDayShort, formatKcal, formatKg, formatNumber, formatTimestamp } from '../format.js';
+import { field, numberInput, onPickerCommit, segmented } from '../forms.js';
+import { formatDateShort, formatDayShort, formatKcal, formatKg, formatKm, formatNumber, formatTimestamp } from '../format.js';
 
 const DAY_MS = 24 * MS_PER_HOUR;
 const LOG_LIMIT = 30;
+const METRIC_DAYS = 14;
+const METRICS = [
+  { id: 'exercise', field: 'exerciseMinutes', unit: 'min', format: (value) => formatNumber(value) },
+  { id: 'distance', field: 'distanceM', unit: 'km', format: (value) => formatKm(value), scale: (value) => value / 1000 },
+  { id: 'flights', field: 'flights', unit: 'flights', format: (value) => formatNumber(value) },
+  { id: 'restingHr', field: 'restingHr', unit: 'bpm', format: (value) => formatNumber(value) },
+  { id: 'hrv', field: 'hrv', unit: 'ms', format: (value) => formatNumber(value) },
+  { id: 'respiratory', field: 'respiratory', unit: 'rpm', format: (value) => formatNumber(value, 1) },
+];
 
 function parseKg(text) {
   const value = Number.parseFloat(String(text).replace(',', '.'));
@@ -254,6 +264,43 @@ export function createBodyView({ store, bodyActions }) {
     );
   }
 
+  let metricId = null;
+
+  function metricChart(state, now, metric) {
+    const data = dailyMetric(state, now, metric.field, METRIC_DAYS);
+    const scale = metric.scale || ((value) => value);
+    const values = data.series.map((item) => item.value).filter((value) => value !== null).map(scale);
+    const name = t(`body.metrics.${metric.id}`);
+    return createBarChart({
+      entries: data.series,
+      maxValue: Math.max(...values, 1) * 1.15,
+      gridValues: [],
+      ariaLabel: t('body.metrics.chartAria', { metric: name }),
+      valueOf: (item) => (item.value === null ? null : scale(item.value)),
+      toneOf: (item) => (item.value === null ? 'empty' : 'water'),
+      labelOf: (item) => t(`days.initial.${weekdayOfKey(item.key)}`),
+      titleOf: (item) => (item.value === null ? t('body.metrics.barEmpty', { day: formatDayShort(item.key) }) : t('body.metrics.bar', { day: formatDayShort(item.key), value: `${metric.format(item.value)} ${t(`summary.units.${metric.unit}`)}` })),
+    }).element;
+  }
+
+  function metricsCard(state, now) {
+    const available = METRICS.filter((metric) => dailyMetric(state, now, metric.field, METRIC_DAYS) !== null);
+    if (available.length === 0) return null;
+    if (!available.some((metric) => metric.id === metricId)) metricId = available[0].id;
+    const body = h('div', { class: 'metric-chart' }, metricChart(state, now, available.find((metric) => metric.id === metricId)));
+    const control = segmented({
+      label: t('body.metrics.label'),
+      value: metricId,
+      options: available.map((metric) => ({ value: metric.id, label: t(`body.metrics.${metric.id}`) })),
+      onChange: (value) => {
+        metricId = value;
+        clear(body);
+        body.append(metricChart(store.state, new Date(), available.find((metric) => metric.id === value)));
+      },
+    });
+    return h('section', { class: 'card chart-card' }, h('h2', { class: 'card-title', text: t('body.metrics.title') }), control, body);
+  }
+
   function profileCard(state) {
     const profile = state.profile;
     const sex = h('select', { class: 'input' }, SEX_OPTIONS.map((value) => h('option', { value, selected: value === profile.sex || null, text: t(`profile.sexes.${value}`) })));
@@ -385,6 +432,7 @@ export function createBodyView({ store, bodyActions }) {
         trendCard(state, now, projection),
         goalCard(state, now, projection),
         energyCard(state, now),
+        metricsCard(state, now),
         profileCard(state),
         logCard(state),
       ].filter(Boolean),

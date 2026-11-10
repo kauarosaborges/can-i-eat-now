@@ -1,5 +1,5 @@
 import { LOCALE, t } from '../i18n/index.js';
-import { MS_PER_MINUTE, minutesToTime, pad2, splitDuration, weekdayOfKey } from '../core/time.js';
+import { MS_PER_MINUTE, daysBetween, minutesToTime, pad2, splitDuration, weekdayOfKey } from '../core/time.js';
 
 export function formatDuration(ms) {
   const rounded = Math.ceil(Math.max(0, ms) / MS_PER_MINUTE) * MS_PER_MINUTE;
@@ -66,4 +66,25 @@ export function formatKcal(value) {
 export function formatDateShort(dateKey) {
   const [year, month, day] = dateKey.split('-').map(Number);
   return new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short' }).format(new Date(year, month - 1, day));
+}
+
+export function formatMinutes(minutes) {
+  return formatDuration(Math.max(0, Math.round(minutes)) * MS_PER_MINUTE);
+}
+
+export function formatKm(meters) {
+  return (meters / 1000).toLocaleString(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+export function formatRelativeDay(key, todayKey) {
+  const days = daysBetween(key, todayKey);
+  if (days <= 0) return t('summary.today');
+  if (days === 1) return t('summary.yesterday');
+  return t('summary.daysAgo', { days });
+}
+
+export function formatGoal(minutes) {
+  const rounded = Math.round(minutes);
+  if (rounded > 0 && rounded % 60 === 0) return t('common.hoursOnly', { h: rounded / 60 });
+  return formatMinutes(rounded);
 }

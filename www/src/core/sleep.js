@@ -1,5 +1,5 @@
 import { buildReminderSchedule, computeDailyGoal } from './hydration.js';
-import { MS_PER_HOUR, MS_PER_MINUTE, addDaysToKey, dateAtMinutes, isValidDateKey, timeToMinutes, toDateKey } from './time.js';
+import { MS_PER_HOUR, MS_PER_MINUTE, addDaysToKey, dateAtMinutes, daysBetween, isValidDateKey, timeToMinutes, toDateKey } from './time.js';
 
 export const SLEEP_SOURCES = ['inferred', 'confirmed', 'health'];
 export const SLEEP_KINDS = ['night', 'awake'];
@@ -16,6 +16,9 @@ export const HEALTH_SETTLE_MS = 20 * MS_PER_MINUTE;
 export const WAKE_EARLY_MS = 3 * MS_PER_HOUR;
 export const WAKE_LATE_MS = 6 * MS_PER_HOUR;
 export const SLEEP_RETENTION_DAYS = 30;
+export const AWAKE_GAP_MS = 5 * MS_PER_MINUTE;
+export const DETAIL_FIELDS = ['asleep', 'awake', 'deep', 'rem', 'core', 'awakenings'];
+export const NIGHT_VITAL_FIELDS = ['hr', 'hrv', 'resp'];
 const ASLEEP_STATES = ['asleep', 'light', 'deep', 'rem'];
 
 export function isAsleepAt(profile, date) {
@@ -71,6 +74,10 @@ export function sleepEntryForDay(sleepLog, profile, wakeKey) {
     if (entryKey(entry, profile) !== wakeKey) return false;
     if (entry.wokeAt <= night.sleepAt) return false;
     if (entry.kind === 'awake') return true;
+    if (isValidDateKey(entry.wakeKey)) {
+      const offset = daysBetween(toDateKey(new Date(entry.wokeAt)), wakeKey);
+      return offset === 0 || offset === 1;
+    }
     return isValidDayWake(profile, wakeKey, entry.wokeAt);
   });
   candidates.sort((left, right) => (SOURCE_PRIORITY[right.source] || 0) - (SOURCE_PRIORITY[left.source] || 0) || right.wokeAt - left.wokeAt);
@@ -153,7 +160,18 @@ export function upsertSleepEntry(sleepLog, profile, entry, nowMs = entry.wokeAt)
   if (kind === 'night' && !isValidDayWake(profile, wakeKey, entry.wokeAt)) return pruneSleepLog(sleepLog, nowMs);
   const others = (sleepLog || []).filter((item) => !(entryKey(item, profile) === wakeKey && item.source === entry.source));
   const saved = { wakeKey, sleptAt: entry.sleptAt, wokeAt: entry.wokeAt, source: entry.source, kind };
+  if (kind === 'night' && entry.detail && typeof entry.detail === 'object') saved.detail = { ...entry.detail };
   return pruneSleepLog([...others, saved], nowMs).sort((left, right) => left.wokeAt - right.wokeAt);
+}
+
+export function removeNightEntries(sleepLog, profile, wakeKey) {
+  return (sleepLog || []).filter((entry) => entry.source === 'health' || entryKey(entry, profile) !== wakeKey);
+}
+
+export function restoreNightEntries(sleepLog, profile, wakeKey, removed) {
+  const present = new Set((sleepLog || []).filter((entry) => entryKey(entry, profile) === wakeKey).map((entry) => entry.source));
+  const restored = (removed || []).filter((entry) => !present.has(entry.source));
+  return [...(sleepLog || []), ...restored].sort((left, right) => left.wokeAt - right.wokeAt);
 }
 
 export function removeHealthEntries(sleepLog) {
@@ -182,7 +200,99 @@ export function sessionFromHealthSamples(samples, now, profile, wakeKey = curren
   const valid = sessions.filter((session) => nowMs - session.wokeAt >= HEALTH_SETTLE_MS && session.wokeAt - session.sleptAt >= MS_PER_HOUR && isValidDayWake(profile, wakeKey, session.wokeAt));
   if (valid.length === 0) return null;
   const longest = valid.reduce((best, session) => (session.wokeAt - session.sleptAt > best.wokeAt - best.sleptAt ? session : best), valid[0]);
-  return { wakeKey, sleptAt: longest.sleptAt, wokeAt: longest.wokeAt, source: 'health', kind: 'night' };
+  const session = { wakeKey, sleptAt: longest.sleptAt, wokeAt: longest.wokeAt, source: 'health', kind: 'night' };
+  const detail = asleep.length > 0 ? sleepDetail(parsed, longest.sleptAt, longest.wokeAt) : null;
+  if (detail) session.detail = detail;
+  return session;
+}
+
+function mergedIntervals(samples, states, from, to) {
+  const clipped = samples
+    .filter((sample) => states.includes(sample.state))
+    .map((sample) => ({ start: Math.max(from, sample.start), end: Math.min(to, sample.end) }))
+    .filter((interval) => interval.end > interval.start)
+    .sort((left, right) => left.start - right.start);
+  const merged = [];
+  for (const interval of clipped) {
+    const last = merged[merged.length - 1];
+    if (last && interval.start <= last.end) last.end = Math.max(last.end, interval.end);
+    else merged.push({ ...interval });
+  }
+  return merged;
+}
+
+function totalMs(intervals) {
+  return intervals.reduce((sum, interval) => sum + interval.end - interval.start, 0);
+}
+
+function toMinutes(ms) {
+  return Math.round(ms / MS_PER_MINUTE);
+}
+
+function subtractIntervals(intervals, cuts) {
+  let result = intervals.map((interval) => ({ ...interval }));
+  for (const cut of cuts) {
+    const next = [];
+    for (const interval of result) {
+      if (cut.end <= interval.start || cut.start >= interval.end) {
+        next.push(interval);
+        continue;
+      }
+      if (cut.start > interval.start) next.push({ start: interval.start, end: cut.start });
+      if (cut.end < interval.end) next.push({ start: cut.end, end: interval.end });
+    }
+    result = next;
+  }
+  return result;
+}
+
+export function sleepDetail(samples, sleptAt, wokeAt) {
+  const awakeSamples = mergedIntervals(samples, ['awake'], sleptAt, wokeAt);
+  const asleep = subtractIntervals(mergedIntervals(samples, ASLEEP_STATES, sleptAt, wokeAt), awakeSamples);
+  if (asleep.length === 0) return null;
+  let awakeMs;
+  let awakenings;
+  let awakeKnown = true;
+  if (awakeSamples.length > 0) {
+    awakeMs = totalMs(awakeSamples);
+    awakenings = awakeSamples.filter((interval) => interval.end - interval.start >= MS_PER_MINUTE).length;
+  } else if (asleep.length > 1) {
+    const gaps = [];
+    for (let index = 1; index < asleep.length; index += 1) gaps.push(asleep[index].start - asleep[index - 1].end);
+    awakeMs = gaps.reduce((sum, gap) => sum + gap, 0);
+    awakenings = gaps.filter((gap) => gap >= AWAKE_GAP_MS).length;
+  } else {
+    awakeMs = 0;
+    awakenings = 0;
+    awakeKnown = false;
+  }
+  const stage = (state) => toMinutes(totalMs(subtractIntervals(mergedIntervals(samples, [state], sleptAt, wokeAt), awakeSamples)));
+  return {
+    asleep: toMinutes(totalMs(asleep)),
+    awake: toMinutes(awakeMs),
+    deep: stage('deep'),
+    rem: stage('rem'),
+    core: stage('light'),
+    awakenings,
+    awakeKnown,
+  };
+}
+
+export function vitalsInWindow(samples, sleptAt, wokeAt, decimals = 0) {
+  const values = (samples || [])
+    .map((sample) => ({ at: Date.parse(sample && (sample.endDate || sample.startDate)), value: sample ? sample.value : NaN }))
+    .filter((sample) => Number.isFinite(sample.at) && Number.isFinite(sample.value) && sample.value > 0 && sample.at >= sleptAt && sample.at <= wokeAt)
+    .map((sample) => sample.value);
+  if (values.length === 0) return null;
+  const factor = 10 ** decimals;
+  return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * factor) / factor;
+}
+
+export function sameDetail(left, right) {
+  const a = left || null;
+  const b = right || null;
+  if (a === null || b === null) return a === b;
+  return [...DETAIL_FIELDS, 'awakeKnown', ...NIGHT_VITAL_FIELDS].every((field) => (a[field] ?? null) === (b[field] ?? null));
 }
 
 export function waterScheduleFor(state, key) {

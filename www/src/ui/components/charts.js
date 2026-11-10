@@ -141,3 +141,33 @@ export function createBalanceBars({ entries, ariaLabel, labelOf, titleOf, valueO
   });
   return { element: reveal(h('div', { class: 'chart-wrap' }, root)) };
 }
+
+export function createSparkline({ points, ariaLabel, startMs, endMs }) {
+  const width = 120;
+  const height = 36;
+  const pad = 4;
+  const values = points.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const spread = Math.max(0.5, max - min);
+  const from = Number.isFinite(startMs) ? startMs : points[0].at;
+  const to = Number.isFinite(endMs) ? endMs : points[points.length - 1].at;
+  const x = (at) => pad + ((at - from) / Math.max(1, to - from)) * (width - pad * 2);
+  const y = (value) => pad + (1 - (value - min) / spread) * (height - pad * 2);
+  const coords = points.map((point) => ({ x: points.length === 1 ? width / 2 : x(point.at), y: y(point.value) }));
+  const root = svg('svg', { class: 'line-chart spark-chart', viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': ariaLabel });
+  if (coords.length > 1) root.append(svg('path', { class: 'chart-trend spark-line', d: linePath(coords), pathLength: 1 }));
+  const last = coords[coords.length - 1];
+  root.append(svg('circle', { class: 'chart-dot spark-dot', cx: last.x.toFixed(1), cy: last.y.toFixed(1), r: 3 }));
+  return { element: reveal(h('div', { class: 'chart-wrap chart-wrap-mini' }, root)) };
+}
+
+export function createStageBar({ segments, ariaLabel }) {
+  const total = segments.reduce((sum, segment) => sum + Math.max(0, segment.value), 0);
+  const bar = h('div', { class: 'stage-bar', role: 'img', 'aria-label': ariaLabel });
+  for (const segment of segments) {
+    if (!(segment.value > 0) || total <= 0) continue;
+    bar.append(h('span', { class: ['stage-bar-segment', segment.className], style: { 'flex-grow': String(segment.value) }, title: segment.title }));
+  }
+  return { element: reveal(h('div', { class: 'stage-bar-wrap' }, bar)) };
+}

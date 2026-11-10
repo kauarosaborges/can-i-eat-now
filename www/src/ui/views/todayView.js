@@ -1,16 +1,19 @@
 import { t } from '../../i18n/index.js';
 import { FASTING_STAGES, checkEatAt, currentStage, fastProgress, nextStage } from '../../core/fasting.js';
 import { buildTimeline, nextMeal } from '../../core/meals.js';
-import { inferSleep, isValidDayWake, nextWakeAfter, nightMode, shouldOfferSleepConfirm, sleepEntryForDay } from '../../core/sleep.js';
-import { MS_PER_HOUR, MS_PER_MINUTE, dateAtMinutes, isValidTime, minutesToTime, timeToMinutes, toDateKey, addDaysToKey } from '../../core/time.js';
+import { nextWakeAfter, nightMode } from '../../core/sleep.js';
+import { buildSummary } from '../../core/summary.js';
+import { MS_PER_HOUR, MS_PER_MINUTE, toDateKey } from '../../core/time.js';
 import { eatingVerdict } from '../../core/verdict.js';
-import { forecastTomorrow } from '../../core/energy.js';
 import { createFastRing } from '../components/fastRing.js';
+import { createSleepConfirmCard } from '../components/sleepConfirmCard.js';
+import { createSummaryGrid } from '../components/summaryGrid.js';
+import { isHealthSyncing, onHealthSyncChange } from '../healthEpoch.js';
 import { openEatSheet } from '../components/eatSheet.js';
 import { openMealTimeSheet } from '../components/mealTimeSheet.js';
 import { confirmDialog } from '../feedback.js';
 import { clear, h, icon, pressable, setText } from '../dom.js';
-import { formatClock, formatDateHeading, formatDayLong, formatDuration, formatKg, formatTimeOfDay, formatTimestamp } from '../format.js';
+import { formatClock, formatDateHeading, formatDayLong, formatDuration, formatTimeOfDay, formatTimestamp } from '../format.js';
 
 const ACTIONABLE = ['allowedNow', 'upcoming', 'missed'];
 
@@ -22,11 +25,6 @@ function statusText(item, plan) {
   return t(`meal.status.${item.status}`);
 }
 
-function timeInputValue(ms) {
-  const date = new Date(ms);
-  return minutesToTime(date.getHours() * 60 + date.getMinutes());
-}
-
 export function createTodayView({ store, actions, sleepActions }) {
   const dateLabel = h('p', { class: 'view-eyebrow' });
   const verdictWord = h('span', { class: 'verdict-word' });
@@ -36,15 +34,9 @@ export function createTodayView({ store, actions, sleepActions }) {
   const ateNowButton = pressable(h('button', { type: 'button', class: 'button button-soft', onClick: () => openEatSheet({ store, actions, preferSnack: nightMode(store.state, new Date()).active }) }, icon('fork'), t('today.ateNow')));
   const verdictCard = h('section', { class: 'card verdict-card' }, h('p', { class: 'verdict-question', text: t('today.question') }), verdict, verdictHint, verdictExtra, ateNowButton);
   const nightCard = h('section', { class: 'card night-card', hidden: true });
-  const forecastText = h('span', { class: 'forecast-mini-value' });
-  const forecastCard = h(
-    'a',
-    { class: 'card forecast-mini', href: '#/body', 'aria-label': t('today.forecastLabel') },
-    h('span', { class: 'forecast-mini-icon', 'aria-hidden': 'true' }, icon('body')),
-    h('span', { class: 'forecast-mini-text' }, h('span', { class: 'forecast-mini-label', text: t('today.forecastLabel') }), forecastText),
-  );
-  let forecastSignature = '';
-  const sleepCard = h('section', { class: 'card sleep-card', hidden: true });
+  const sleepConfirm = createSleepConfirmCard({ store, sleepActions });
+  const summaryGrid = createSummaryGrid();
+  let summarySignature = '';
   const ringTitle = h('h2', { class: 'card-title' });
   const ring = createFastRing();
   const stageList = h('ol', { class: 'stage-list' });
@@ -74,10 +66,9 @@ export function createTodayView({ store, actions, sleepActions }) {
       h(
         'div',
         { class: 'split-main' },
-        sleepCard,
         nightCard,
         verdictCard,
-        forecastCard,
+        sleepConfirm.element,
         h('section', { class: 'card ring-card' }, ringTitle, ring.element, stageNote, stageList, h('p', { class: 'disclaimer', text: t('today.disclaimer') })),
       ),
       h(
@@ -86,14 +77,14 @@ export function createTodayView({ store, actions, sleepActions }) {
         h('section', { class: 'card timeline-card' }, h('h2', { class: 'card-title', text: t('today.timelineTitle') }), nextMealLine, timelineList, restoreButton),
       ),
     ),
+    summaryGrid.element,
   );
+  const stopSyncWatch = onHealthSyncChange(() => renderSummary(new Date(), true));
 
   let verdictState = null;
   let timelineSignature = '';
   let extraSignature = '';
   let nightSignature = '';
-  let sleepSignature = '';
-  let sleepAdjusting = false;
   let nightDismissedUntil = 0;
 
   function renderVerdict(result, now, plan) {
@@ -171,82 +162,11 @@ export function createTodayView({ store, actions, sleepActions }) {
     return mode;
   }
 
-  function renderSleepCard(now, mode) {
-    const state = store.state;
-    const key = toDateKey(now);
-    const entry = sleepEntryForDay(state.sleep.log, state.profile, key);
-    const offer = !mode.active && shouldOfferSleepConfirm(state, now);
-    const showConfirmed = !mode.active && entry && entry.kind !== 'awake' && entry.source !== 'inferred' && now.getTime() - entry.wokeAt < 6 * MS_PER_HOUR;
-    sleepCard.hidden = !offer && !showConfirmed;
-    if (sleepCard.hidden) {
-      sleepSignature = '';
-      return;
-    }
-    const proposal = offer ? inferSleep(state.activity, state.profile, key, now) : entry;
-    const signature = `${offer}:${sleepAdjusting}:${proposal.sleptAt}:${proposal.wokeAt}:${entry ? entry.source : ''}`;
-    if (signature === sleepSignature) return;
-    sleepSignature = signature;
-    clear(sleepCard);
-    const slept = formatTimestamp(proposal.sleptAt);
-    const woke = formatTimestamp(proposal.wokeAt);
-    if (!offer) {
-      sleepCard.append(h('p', { class: 'sleep-line' }, icon('moon'), h('span', { text: entry.source === 'health' ? t('sleepCard.health', { slept, woke }) : t('sleepCard.confirmed', { slept, woke }) })));
-      return;
-    }
-    if (!sleepAdjusting) {
-      sleepCard.append(
-        h('p', { class: 'sleep-question' }, icon('moon'), h('span', { text: t('sleepCard.question', { slept, woke }) })),
-        h('p', { class: 'field-hint', text: t('sleepCard.hint') }),
-        h(
-          'div',
-          { class: 'button-row' },
-          pressable(h('button', { type: 'button', class: 'button button-primary', text: t('sleepCard.confirm'), onClick: () => sleepActions.confirmSleep(proposal.sleptAt, proposal.wokeAt, key) })),
-          pressable(h('button', { type: 'button', class: 'button button-ghost', text: t('sleepCard.adjust'), onClick: () => { sleepAdjusting = true; tick(new Date()); } })),
-          pressable(h('button', { type: 'button', class: 'button button-ghost', text: t('sleepCard.noSleep'), onClick: () => sleepActions.markNoSleep(key) })),
-        ),
-      );
-      return;
-    }
-    const sleptInput = h('input', { class: 'input', type: 'time', value: timeInputValue(proposal.sleptAt), 'aria-label': t('sleepCard.slept') });
-    const wokeInput = h('input', { class: 'input', type: 'time', value: timeInputValue(proposal.wokeAt), 'aria-label': t('sleepCard.woke') });
-    const error = h('p', { class: 'field-error', role: 'alert' });
-    sleepCard.append(
-      h('div', { class: 'grid-2' }, h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('sleepCard.slept') }), sleptInput), h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('sleepCard.woke') }), wokeInput)),
-      error,
-      h(
-        'div',
-        { class: 'button-row' },
-        pressable(
-          h('button', {
-            type: 'button',
-            class: 'button button-primary',
-            text: t('sleepCard.save'),
-            onClick: () => {
-              if (!isValidTime(sleptInput.value) || !isValidTime(wokeInput.value)) {
-                setText(error, t('sleepCard.invalid'));
-                return;
-              }
-              const wokeMinute = timeToMinutes(wokeInput.value);
-              const sleptMinute = timeToMinutes(sleptInput.value);
-              const wokeAt = dateAtMinutes(key, wokeMinute).getTime();
-              const sleptKey = sleptMinute > wokeMinute ? addDaysToKey(key, -1) : key;
-              const sleptAt = dateAtMinutes(sleptKey, sleptMinute).getTime();
-              if (wokeAt <= sleptAt || wokeAt > Date.now() + 5 * MS_PER_MINUTE || wokeAt - sleptAt > 20 * MS_PER_HOUR) {
-                setText(error, t('sleepCard.invalid'));
-                return;
-              }
-              if (!isValidDayWake(store.state.profile, key, wokeAt)) {
-                setText(error, t('sleepCard.invalidWake'));
-                return;
-              }
-              sleepAdjusting = false;
-              sleepActions.confirmSleep(sleptAt, wokeAt, key);
-            },
-          }),
-        ),
-        pressable(h('button', { type: 'button', class: 'button button-ghost', text: t('common.cancel'), onClick: () => { sleepAdjusting = false; tick(new Date()); } })),
-      ),
-    );
+  function renderSummary(now, force = false) {
+    const key = `${toDateKey(now)}:${now.getHours()}:${now.getMinutes()}`;
+    if (!force && key === summarySignature) return;
+    summarySignature = key;
+    summaryGrid.update(buildSummary(store.state, now), store.state, now, { healthAvailable: sleepActions.healthAvailable(), syncing: isHealthSyncing() });
   }
 
   function renderExtra(lines) {
@@ -406,7 +326,7 @@ export function createTodayView({ store, actions, sleepActions }) {
     const dayLog = store.dayLog(context.key);
     setText(dateLabel, formatDateHeading(now));
     const mode = renderNight(now);
-    renderSleepCard(now, mode);
+    sleepConfirm.update(now, mode.active);
     renderVerdict(result, now, plan);
     const extra = [];
     if (plan.fastingType === 'zero') extra.push(t('today.fastingDayZero'));
@@ -419,12 +339,7 @@ export function createTodayView({ store, actions, sleepActions }) {
     renderExtra(extra);
     renderRing(now, result.fast);
     renderTimeline(plan, dayLog, context.minute);
-    const minuteKey = `${toDateKey(now)}:${now.getHours()}:${now.getMinutes()}`;
-    if (minuteKey !== forecastSignature) {
-      forecastSignature = minuteKey;
-      const forecast = forecastTomorrow(state, now);
-      setText(forecastText, t('today.forecast', { kg: formatKg(forecast.kg), low: formatKg(forecast.low), high: formatKg(forecast.high) }));
-    }
+    renderSummary(now);
   }
 
   return {
@@ -432,11 +347,13 @@ export function createTodayView({ store, actions, sleepActions }) {
     tick,
     refresh() {
       timelineSignature = '';
-      forecastSignature = '';
+      summarySignature = '';
       nightSignature = '';
-      sleepSignature = '';
+      sleepConfirm.reset();
       tick(new Date());
     },
-    destroy() {},
+    destroy() {
+      stopSyncWatch();
+    },
   };
 }

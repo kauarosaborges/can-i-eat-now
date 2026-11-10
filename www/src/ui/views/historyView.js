@@ -13,12 +13,32 @@ function streakText(count) {
   return t('history.streak', { count });
 }
 
-export function createHistoryView({ store }) {
+export function createHistoryView({ store, goBack }) {
   const content = h('div', { class: 'history-content' });
   const element = h(
     'section',
     { class: 'view view-history' },
-    h('header', { class: 'view-header' }, h('p', { class: 'view-eyebrow', text: t('history.subtitle') }), h('h1', { class: 'view-title', text: t('history.title') })),
+    h(
+      'header',
+      { class: 'view-header' },
+      h(
+        'a',
+        {
+          class: 'back-link',
+          href: '#/today',
+          'aria-label': t('history.backLabel'),
+          onClick: (event) => {
+            if (!goBack) return;
+            event.preventDefault();
+            goBack();
+          },
+        },
+        icon('chevronLeft'),
+        h('span', { text: t('history.back') }),
+      ),
+      h('p', { class: 'view-eyebrow', text: t('history.subtitle') }),
+      h('h1', { class: 'view-title', text: t('history.title') }),
+    ),
     content,
   );
   let renderedKey = '';

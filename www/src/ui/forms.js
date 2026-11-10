@@ -338,7 +338,21 @@ export function mealsEditor(draft, commit) {
       );
       const warning = h('p', { class: 'field-warning', role: 'status' });
       warnings.set(meal.id, warning);
-      list.append(h('div', { class: 'meal-editor-row' }, nameInput, time, remove), warning);
+      const kcal = numberInput({
+        value: Number.isFinite(meal.kcal) ? meal.kcal : 400,
+        limits: LIMITS.mealKcal,
+        step: 10,
+        onCommit: (value) => {
+          meal.kcal = value;
+          commit('meals');
+        },
+      });
+      kcal.setAttribute('aria-label', t('meals.kcalFor', { name: meal.name }));
+      list.append(
+        h('div', { class: 'meal-editor-row' }, nameInput, time, remove),
+        h('label', { class: 'meal-editor-kcal' }, h('span', { class: 'field-hint', text: t('meals.kcalLabel') }), kcal),
+        warning,
+      );
     });
     const add = pressable(
       h(
@@ -354,7 +368,7 @@ export function mealsEditor(draft, commit) {
             }
             const last = draft.meals[draft.meals.length - 1];
             const time = last ? minutesToTime(Math.min(1380, timeToMinutes(last.time) + 120)) : '12:00';
-            draft.meals.push({ id: createMealId(), name: t('meals.newName'), time });
+            draft.meals.push({ id: createMealId(), name: t('meals.newName'), time, kcal: 400 });
             commit('meals');
             render();
             const inputs = list.querySelectorAll('input[type="text"]');
@@ -365,7 +379,14 @@ export function mealsEditor(draft, commit) {
         t('meals.add'),
       ),
     );
-    list.append(add);
+    list.append(
+      field(
+        t('meals.snackKcal'),
+        numberInput({ value: draft.profile.snackKcal, limits: LIMITS.snackKcal, step: 10, onCommit: (value) => { draft.profile.snackKcal = value; commit('profile'); } }),
+        t('meals.kcalHint'),
+      ),
+      add,
+    );
     refreshWarnings();
   };
   render();
@@ -398,7 +419,7 @@ export function profileFields(draft, commit) {
       'div',
       { class: 'grid-3' },
       field(t('profile.weight'), numberInput({ value: profile.weightKg, limits: LIMITS.weightKg, step: 0.1, onCommit: update('weightKg') })),
-      field(t('profile.height'), numberInput({ value: profile.heightCm, limits: LIMITS.heightCm, onCommit: update('heightCm') })),
+      field(t('profile.height'), numberInput({ value: profile.heightCm, limits: LIMITS.heightCm, onCommit: (value) => { profile.heightSource = 'manual'; update('heightCm')(value); } })),
       field(t('profile.age'), numberInput({ value: profile.age, limits: LIMITS.age, onCommit: update('age') })),
     ),
     field(t('profile.sex'), selectInput({ options: SEXES.map((sex) => ({ value: sex, label: t(`profile.sexes.${sex}`) })), value: profile.sex, onChange: update('sex') })),

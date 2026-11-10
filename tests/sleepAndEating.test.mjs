@@ -206,12 +206,12 @@ test('notification plan uses the actual wake for water and pauses meal alerts af
   assert.deepEqual(names, ['Snack', 'Dinner']);
 });
 
-test('schema version 1 migrates to 2 keeping data', () => {
+test('schema version 1 migrates to the current version keeping data', () => {
   const now = at('10:00');
   const defaults = createDefaultState(now, MEAL_NAMES);
   const raw = JSON.stringify({ version: 1, onboarded: true, profile: { weightKg: 82 }, days: { [DAY]: { water: [{ id: 'w-1', at: 1, ml: 300 }] } } });
   const state = parseState(raw, defaults, now);
-  assert.equal(state.version, 2);
+  assert.equal(state.version, 3);
   assert.equal(state.onboarded, true);
   assert.equal(state.profile.weightKg, 82);
   assert.equal(state.days[DAY].water[0].ml, 300);

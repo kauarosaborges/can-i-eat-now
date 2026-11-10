@@ -50,3 +50,20 @@ export function formatPercent(ratio) {
 export function formatHours(value) {
   return value.toLocaleString(LOCALE, { maximumFractionDigits: 1 });
 }
+
+export function formatKg(value, digits = 1) {
+  return t('body.kg', { value: value.toLocaleString(LOCALE, { minimumFractionDigits: digits, maximumFractionDigits: digits }) });
+}
+
+export function formatNumber(value, digits = 0) {
+  return value.toLocaleString(LOCALE, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+export function formatKcal(value) {
+  return t('body.kcal', { value: Math.round(value).toLocaleString(LOCALE) });
+}
+
+export function formatDateShort(dateKey) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short' }).format(new Date(year, month - 1, day));
+}

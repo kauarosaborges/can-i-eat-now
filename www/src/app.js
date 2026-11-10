@@ -11,7 +11,9 @@ import { formatMl } from './ui/format.js';
 import { createNativeNotifications } from './ui/nativeNotifications.js';
 import { permissionState, setNativeBackend, showSystemNotification } from './ui/notifications.js';
 import { isNative } from './ui/platform.js';
+import { createBodyActions } from './ui/bodyActions.js';
 import { createSleepActions } from './ui/sleepActions.js';
+import { createBodyView } from './ui/views/bodyView.js';
 import { createStore } from './ui/store.js';
 import { createHistoryView } from './ui/views/historyView.js';
 import { openOnboarding } from './ui/views/onboarding.js';
@@ -22,6 +24,7 @@ import { createWaterView } from './ui/views/waterView.js';
 const ROUTES = [
   { id: 'today', icon: 'today', create: createTodayView },
   { id: 'water', icon: 'water', create: createWaterView },
+  { id: 'body', icon: 'body', create: createBodyView },
   { id: 'history', icon: 'history', create: createHistoryView },
   { id: 'settings', icon: 'settings', create: createSettingsView },
 ];
@@ -29,6 +32,7 @@ const ROUTES = [
 const store = createStore();
 const actions = createActions(store);
 const sleepActions = createSleepActions(store);
+const bodyActions = createBodyActions(store);
 const nativeNotifications = isNative()
   ? createNativeNotifications({
       store,
@@ -81,7 +85,7 @@ function showRoute(route) {
   const nextIndex = ROUTES.indexOf(route);
   const previousView = activeView;
   activeRoute = route;
-  activeView = route.create({ store, actions, sleepActions, openOnboarding: startOnboarding });
+  activeView = route.create({ store, actions, sleepActions, bodyActions, openOnboarding: startOnboarding });
   const element = activeView.element;
   const reduced = prefersReducedMotion();
   if (previousView) {
@@ -191,6 +195,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   sleepActions.recordActivity();
   sleepActions.syncHealth();
+  bodyActions.syncHealth();
   tick();
   if (nativeNotifications) nativeNotifications.refreshPermission().then(() => nativeNotifications.schedule());
 });
@@ -199,6 +204,7 @@ document.addEventListener('pointerdown', () => sleepActions.recordActivity(), { 
 
 sleepActions.recordActivity();
 sleepActions.syncHealth(true);
+bodyActions.syncHealth(true);
 showRoute(routeFromHash());
 setInterval(tick, 1000);
 if (!store.state.onboarded) startOnboarding();

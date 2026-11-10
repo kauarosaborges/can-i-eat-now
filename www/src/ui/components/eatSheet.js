@@ -4,6 +4,7 @@ import { eatingChoices, proposalSignature } from '../../core/meals.js';
 import { minutesToTime } from '../../core/time.js';
 import { clear, h, icon, pressable } from '../dom.js';
 import { openOverlay } from '../feedback.js';
+import { segmented } from '../forms.js';
 
 let active = null;
 
@@ -46,11 +47,12 @@ export function openEatSheet({ store, actions, mealId = null, preferSnack = fals
   const subtitle = h('p', { class: 'dialog-body' });
   const body = h('div', { class: 'sheet-body' });
   let overlay = null;
+  let portion = 'normal';
   const close = () => overlay.close(false);
   const nameOf = (id, fallback) => actions.mealName(id, actions.mealContext().plan) || fallback;
 
   function confirmWith(selectedMealId, signature) {
-    const outcome = actions.applyMeal(selectedMealId, 'full', signature);
+    const outcome = actions.applyMeal(selectedMealId, 'full', signature, portion);
     if (outcome.changed) {
       showProposal(selectedMealId, outcome.prepared, true);
       return;
@@ -74,7 +76,7 @@ export function openEatSheet({ store, actions, mealId = null, preferSnack = fals
       h(
         'div',
         { class: 'dialog-actions' },
-        pressable(h('button', { type: 'button', class: 'button button-ghost', text: t('eatSheet.keep'), onClick: () => { actions.applyMeal(selectedMealId, 'keep'); close(); } })),
+        pressable(h('button', { type: 'button', class: 'button button-ghost', text: t('eatSheet.keep'), onClick: () => { actions.applyMeal(selectedMealId, 'keep', undefined, portion); close(); } })),
         pressable(h('button', { type: 'button', class: 'button button-primary', 'data-autofocus': true, text: t('eatSheet.confirm'), onClick: () => confirmWith(selectedMealId, signature) })),
       ),
       ].filter(Boolean),
@@ -102,6 +104,15 @@ export function openEatSheet({ store, actions, mealId = null, preferSnack = fals
     body.append(
       ...[
       recentMinutes !== null ? h('p', { class: 'hint-card' }, icon('info'), h('span', { text: t('eatSheet.recentWarning', { minutes: recentMinutes }) })) : null,
+      h('p', { class: 'field-label', text: t('eatSheet.portionLabel') }),
+      segmented({
+        label: t('eatSheet.portionLabel'),
+        options: ['less', 'normal', 'more'].map((value) => ({ value, label: t(`eatSheet.portions.${value}`) })),
+        value: portion,
+        onChange: (value) => {
+          portion = value;
+        },
+      }),
       h(
         'div',
         { class: 'sheet-options' },
@@ -111,7 +122,7 @@ export function openEatSheet({ store, actions, mealId = null, preferSnack = fals
           recommended: snackRecommended,
           iconName: 'flame',
           onClick: () => {
-            actions.snackNow();
+            actions.snackNow(portion);
             close();
           },
         }),

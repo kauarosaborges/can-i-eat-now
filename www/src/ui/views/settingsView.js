@@ -4,16 +4,16 @@ import { resetDayPlan } from '../../core/meals.js';
 import { mergeSettings } from '../../core/storage.js';
 import { clear, h, icon, pressable } from '../dom.js';
 import { confirmDialog, showToast } from '../feedback.js';
-import { flexFields, mealsEditor, modeDetails, modePicker, notificationControl, profileFields } from '../forms.js';
+import { flexFields, mealsEditor, modeDetails, modePicker, notificationControl, profileFields, toggle } from '../forms.js';
 
-const IGNORED_REASONS = ['settings', 'reminder', 'water', 'meal', 'undo', 'day'];
+const IGNORED_REASONS = ['settings', 'reminder', 'water', 'meal', 'undo', 'day', 'activity', 'sleep'];
 const PLAN_REASONS = ['mode', 'fasting'];
 
 function section(title, ...children) {
   return h('section', { class: 'card settings-section' }, h('h2', { class: 'card-title', text: title }), ...children);
 }
 
-export function createSettingsView({ store, openOnboarding }) {
+export function createSettingsView({ store, openOnboarding, sleepActions }) {
   const content = h('div', { class: 'settings-grid' });
   const element = h(
     'section',
@@ -38,6 +38,53 @@ export function createSettingsView({ store, openOnboarding }) {
     if (meals && (reason === 'mode' || reason === 'fasting')) meals.refreshWarnings();
   }
 
+  function healthToggle() {
+    const control = toggle({
+      checked: store.state.sleep.healthEnabled,
+      label: t('settings.healthToggle'),
+      hint: t('settings.healthHint'),
+      onChange: async (wanted) => {
+        const enabled = await sleepActions.setHealthEnabled(wanted);
+        const input = control.querySelector('input');
+        if (input) input.checked = enabled;
+      },
+    });
+    return control;
+  }
+
+  function sleepControls() {
+    return [
+      sleepActions.healthAvailable() ? healthToggle() : null,
+      h('p', { class: 'field-note' }, icon('info'), h('span', { text: t('settings.sleepDisclosure') })),
+      h(
+        'div',
+        { class: 'button-row' },
+        pressable(
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'button button-ghost',
+              onClick: async () => {
+                const confirmed = await confirmDialog({
+                  title: t('settings.clearSleepTitle'),
+                  body: t('settings.clearSleepBody'),
+                  confirmLabel: t('settings.clearSleepConfirm'),
+                  danger: true,
+                });
+                if (!confirmed) return;
+                sleepActions.clearSleepData();
+                showToast(t('toast.sleepCleared'));
+              },
+            },
+            icon('trash'),
+            t('settings.clearSleep'),
+          ),
+        ),
+      ),
+    ].filter(Boolean);
+  }
+
   function isEditing() {
     return content.contains(document.activeElement) && document.activeElement !== document.body;
   }
@@ -49,11 +96,13 @@ export function createSettingsView({ store, openOnboarding }) {
     details = modeDetails(draft, commit);
     meals = mealsEditor(draft, commit);
     content.append(
+      ...[
       section(t('settings.modeSection'), modePicker(draft, commit), details.element),
       section(t('settings.mealsSection'), meals.element),
       section(t('settings.flexSection'), flexFields(draft, commit)),
       section(t('settings.hydrationSection'), profileFields(draft, commit)),
       section(t('settings.notificationsSection'), notificationControl(draft, commit)),
+      sleepActions ? section(t('settings.sleepSection'), ...sleepControls()) : null,
       section(
         t('settings.dataSection'),
         h('p', { class: 'field-note' }, icon('info'), h('span', { text: t('settings.privacy') })),
@@ -85,6 +134,7 @@ export function createSettingsView({ store, openOnboarding }) {
           ),
         ),
       ),
+      ].filter(Boolean),
     );
   }
 

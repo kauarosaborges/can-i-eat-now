@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v6';
 const CACHE_NAME = `can-i-eat-now-${CACHE_VERSION}`;
 
 const PRECACHE = [
@@ -24,6 +24,8 @@ const PRECACHE = [
   'src/core/history.js',
   'src/core/storage.js',
   'src/core/notificationPlan.js',
+  'src/core/sleep.js',
+  'src/core/verdict.js',
   'src/ui/actions.js',
   'src/ui/animation.js',
   'src/ui/dom.js',
@@ -33,8 +35,10 @@ const PRECACHE = [
   'src/ui/nativeNotifications.js',
   'src/ui/notifications.js',
   'src/ui/platform.js',
+  'src/ui/sleepActions.js',
   'src/ui/store.js',
   'src/ui/components/barChart.js',
+  'src/ui/components/eatSheet.js',
   'src/ui/components/fastRing.js',
   'src/ui/components/reminderPrompt.js',
   'src/ui/components/waveVessel.js',

@@ -2,7 +2,6 @@ import { t } from '../../i18n/index.js';
 import {
   CUSTOM_WATER_LIMITS,
   QUICK_AMOUNTS_ML,
-  buildReminderSchedule,
   computeDailyGoal,
   hydrationDayContext,
   hydrationRatio,
@@ -10,6 +9,7 @@ import {
   totalWaterMl,
   validateWaterAmount,
 } from '../../core/hydration.js';
+import { nightMode, waterScheduleFor } from '../../core/sleep.js';
 import { tween } from '../animation.js';
 import { createWaveVessel } from '../components/waveVessel.js';
 import { clear, h, icon, pressable, prefersReducedMotion, setText } from '../dom.js';
@@ -145,9 +145,10 @@ export function createWaterView({ store, actions }) {
     const goal = computeDailyGoal(state.profile);
     const total = totalWaterMl(dayLog.water);
     const ratio = hydrationRatio(total, goal.goalMl);
-    const schedule = buildReminderSchedule({ goalMl: goal.goalMl, glassMl: state.profile.glassMl, wakeTime: state.profile.wakeTime, sleepTime: state.profile.sleepTime });
+    const schedule = waterScheduleFor(state, key);
     const next = nextReminderMinute(schedule.times, context.minute);
-    const nextSignature = JSON.stringify([key, total, goal.goalMl, dayLog.water.length, next, schedule.intervalMinutes]);
+    const night = nightMode(state, now).active;
+    const nextSignature = JSON.stringify([key, total, goal.goalMl, dayLog.water.length, next, schedule.intervalMinutes, night]);
     if (nextSignature === signature) return;
     const first = signature === '';
     signature = nextSignature;
@@ -158,7 +159,8 @@ export function createWaterView({ store, actions }) {
     animatePercent(percentValue);
     setText(progressLine, t('water.progress', { current: formatMl(total), goal: formatMl(goal.goalMl) }));
     setText(remainingLine, total >= goal.goalMl ? t('water.done') : t('water.remaining', { amount: formatMl(goal.goalMl - total) }));
-    setText(reminderLine, next === null ? t('water.noMoreReminders') : t('water.nextReminder', { time: formatTimeOfDay(next) }));
+    if (night) setText(reminderLine, t('night.waterHint'));
+    else setText(reminderLine, next === null ? t('water.noMoreReminders') : t('water.nextReminder', { time: formatTimeOfDay(next) }));
     setText(intervalLine, t('water.every', { minutes: schedule.intervalMinutes, amount: formatMl(schedule.mlPerReminder) }));
 
     clear(howList);

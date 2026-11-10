@@ -164,26 +164,6 @@
   animation-delay: 80ms;
 }
 
-.verdict-icon {
-  position: absolute;
-  top: 18%;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.22);
-}
-
-.verdict-icon .icon {
-  width: 20px;
-  height: 20px;
-  stroke-width: 3;
-  stroke-dasharray: 30;
-  stroke-dashoffset: 30;
-  animation: draw-stroke var(--duration-slow) var(--ease-out) 200ms forwards;
-}
-
 @keyframes verdict-pop {
   from {
     opacity: 0;
@@ -1010,4 +990,111 @@
 .onboarding-close:hover {
   color: var(--ink);
   background: var(--surface-sunken);
+}
+
+.verdict-card .button-soft {
+  margin-top: var(--space-1);
+}
+
+.status-snack .meal-node {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.status-snack .pill {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.night-card {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  color: #e7eef7;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(120, 150, 210, 0.22), transparent 60%),
+    linear-gradient(180deg, #121a33, #0b1022);
+  border-color: rgba(160, 180, 230, 0.16);
+  animation: night-in var(--duration-slow) var(--ease-out) both;
+}
+
+.night-moon {
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  color: #f6e7b8;
+  background: radial-gradient(circle at 35% 35%, rgba(246, 231, 184, 0.28), rgba(246, 231, 184, 0.06) 70%);
+}
+
+.night-moon .icon {
+  width: 40px;
+  height: 40px;
+}
+
+.night-title {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.night-body {
+  max-width: 32ch;
+  color: rgba(231, 238, 247, 0.78);
+}
+
+.night-actions {
+  justify-content: center;
+}
+
+.night-card .button-ghost {
+  color: #e7eef7;
+  border-color: rgba(231, 238, 247, 0.28);
+}
+
+.night-card .button-soft {
+  background: rgba(160, 180, 230, 0.18);
+  color: #e7eef7;
+}
+
+@keyframes night-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.view-today.is-night .ring-card,
+.view-today.is-night .timeline-card,
+.view-today.is-night .verdict-card {
+  opacity: 0.6;
+}
+
+.sleep-card {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.sleep-question,
+.sleep-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 700;
+}
+
+.sleep-line {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+
+.sleep-question .icon,
+.sleep-line .icon {
+  color: var(--primary);
 }

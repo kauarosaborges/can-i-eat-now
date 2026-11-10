@@ -1,7 +1,8 @@
-import { MODIFIED_MEAL_ID, absoluteWindows, classifyDay, dayContext, effectiveWindow, isInsideWindow } from './fasting.js';
-import { buildReminderSchedule, computeDailyGoal, hydrationDayContext, totalWaterMl } from './hydration.js';
+import { MODIFIED_MEAL_ID, absoluteWindows, classifyDay, dayContext, effectiveWindow, isInsideWindow, lastMealTimestamp } from './fasting.js';
+import { computeDailyGoal, hydrationDayContext, totalWaterMl } from './hydration.js';
+import { actualWakeMinute, isAsleepAt, nextWakeAfter, waterScheduleFor } from './sleep.js';
 import { mealsForDay, scheduledMinutes } from './meals.js';
-import { MINUTES_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, addDaysToKey, dateAtMinutes, timeToMinutes, toDateKey } from './time.js';
+import { MINUTES_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, addDaysToKey, dateAtMinutes, toDateKey } from './time.js';
 
 export const NOTIFICATION_KINDS = ['water', 'mealAllowed', 'windowOpen', 'windowClosing'];
 export const MAX_PENDING_NOTIFICATIONS = 60;
@@ -17,22 +18,7 @@ export function stableNotificationId(text) {
   return (hash & 0x7fffffff) || 1;
 }
 
-export function isAsleepAt(profile, date) {
-  const wake = timeToMinutes(profile.wakeTime);
-  const sleep = timeToMinutes(profile.sleepTime);
-  const minute = date.getHours() * 60 + date.getMinutes();
-  if (wake === sleep) return false;
-  if (sleep > wake) return minute >= sleep || minute < wake;
-  return minute >= sleep && minute < wake;
-}
-
-export function nextWakeAfter(profile, date) {
-  const wake = timeToMinutes(profile.wakeTime);
-  const key = toDateKey(date);
-  const sameDay = dateAtMinutes(key, wake);
-  if (sameDay.getTime() > date.getTime()) return sameDay;
-  return dateAtMinutes(addDaysToKey(key, 1), wake);
-}
+export { isAsleepAt, nextWakeAfter };
 
 function kindEnabled(state, kind) {
   const kinds = state.notifications && state.notifications.kinds ? state.notifications.kinds : {};
@@ -43,7 +29,6 @@ function waterItems(state, now, until) {
   const items = [];
   const profile = state.profile;
   const goal = computeDailyGoal(profile).goalMl;
-  const schedule = buildReminderSchedule({ goalMl: goal, glassMl: profile.glassMl, wakeTime: profile.wakeTime, sleepTime: profile.sleepTime });
   const context = hydrationDayContext(profile, now);
   const days = Math.ceil((until - now.getTime()) / (MINUTES_PER_DAY * MS_PER_MINUTE)) + 1;
   for (let offset = 0; offset <= days; offset += 1) {
@@ -51,6 +36,7 @@ function waterItems(state, now, until) {
     const dayLog = state.days[key];
     if (dayLog && totalWaterMl(dayLog.water) >= goal) continue;
     const handled = offset === 0 && dayLog && Number.isFinite(dayLog.lastReminder) ? dayLog.lastReminder : -1;
+    const schedule = waterScheduleFor(state, key);
     for (const minute of schedule.times) {
       if (minute <= handled) continue;
       const at = dateAtMinutes(key, minute);
@@ -67,9 +53,17 @@ function waterItems(state, now, until) {
   return items;
 }
 
+function actualWakeAt(state, date) {
+  const key = toDateKey(date);
+  const minute = actualWakeMinute(state, key);
+  return minute === null ? null : dateAtMinutes(key, minute).getTime();
+}
+
 function mealItems(state, now, until) {
   const items = [];
   const context = dayContext(state.fasting, state.days, now);
+  const lastEating = lastMealTimestamp(state.days, now.getTime());
+  const quietUntil = lastEating === null ? -Infinity : lastEating + state.fasting.minGapMinutes * MS_PER_MINUTE;
   const days = Math.ceil((until - now.getTime()) / (MINUTES_PER_DAY * MS_PER_MINUTE)) + 1;
   for (let offset = 0; offset <= days; offset += 1) {
     const key = addDaysToKey(context.key, offset);
@@ -84,9 +78,13 @@ function mealItems(state, now, until) {
       if (entry.isModified && dayLog && dayLog.meals && dayLog.meals[MODIFIED_MEAL_ID]) continue;
       const scheduled = scheduledMinutes(entry, dayLog);
       if (!isInsideWindow(window, scheduled)) continue;
+      const at = dateAtMinutes(key, scheduled);
+      if (at.getTime() < quietUntil) continue;
+      const wakeAt = actualWakeAt(state, at);
+      if (wakeAt !== null && at.getTime() < wakeAt) continue;
       items.push({
         id: stableNotificationId(`meal:${key}:${entry.id}`),
-        at: dateAtMinutes(key, scheduled),
+        at,
         kind: 'mealAllowed',
         titleKey: 'notificationPlan.mealTitle',
         bodyKey: entry.isModified ? 'notificationPlan.mealModifiedBody' : 'notificationPlan.mealBody',
@@ -106,7 +104,9 @@ function windowItems(state, now, until) {
   for (const window of windows) {
     if (window.start > nowMs) {
       const start = new Date(window.start);
-      const deferred = isAsleepAt(state.profile, start) ? nextWakeAfter(state.profile, start) : start;
+      const planned = isAsleepAt(state.profile, start) ? nextWakeAfter(state.profile, start) : start;
+      const wakeAt = actualWakeAt(state, planned);
+      const deferred = wakeAt !== null && planned.getTime() < wakeAt ? new Date(wakeAt) : planned;
       if (deferred.getTime() < window.end) {
         items.push({
           id: stableNotificationId(`open:${window.start}`),

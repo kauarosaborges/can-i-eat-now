@@ -1,7 +1,7 @@
 import { MODIFIED_MEAL_ID, absoluteWindows, classifyDay, dayContext, effectiveWindow, isInsideWindow, lastMealTimestamp } from './fasting.js';
 import { computeDailyGoal, hydrationDayContext, totalWaterMl } from './hydration.js';
 import { actualWakeMinute, isAsleepAt, nextWakeAfter, waterScheduleFor } from './sleep.js';
-import { mealsForDay, scheduledMinutes } from './meals.js';
+import { hasManualTime, mealsForDay, scheduledMinutes } from './meals.js';
 import { MINUTES_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, addDaysToKey, dateAtMinutes, toDateKey } from './time.js';
 
 export const NOTIFICATION_KINDS = ['water', 'mealAllowed', 'windowOpen', 'windowClosing'];
@@ -77,7 +77,7 @@ function mealItems(state, now, until) {
       if (dayLog && dayLog.skips && dayLog.skips[entry.id]) continue;
       if (entry.isModified && dayLog && dayLog.meals && dayLog.meals[MODIFIED_MEAL_ID]) continue;
       const scheduled = scheduledMinutes(entry, dayLog);
-      if (!isInsideWindow(window, scheduled)) continue;
+      if (!isInsideWindow(window, scheduled) && !hasManualTime(dayLog, entry.id)) continue;
       const at = dateAtMinutes(key, scheduled);
       if (at.getTime() < quietUntil) continue;
       const wakeAt = actualWakeAt(state, at);

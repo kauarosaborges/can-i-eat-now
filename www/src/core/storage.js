@@ -1,5 +1,8 @@
 import { ACTIVITY_LEVELS } from './hydration.js';
 import { FASTING_DAY_TYPES, FASTING_MODES, INTERMITTENT_PRESETS, MODIFIED_MEAL_ID } from './fasting.js';
+import { repairDayPlans } from './dayRepair.js';
+import { DEDUPE_KG, MAX_WEIGHT_ENTRIES, dedupeMeasurements } from './body.js';
+import { ENERGY_RETENTION_DAYS } from './energy.js';
 import { MAX_MEALS, sanitizeMealName } from './meals.js';
 import { ACTIVITY_RETENTION_MS, MAX_ACTIVITY_ENTRIES, SLEEP_KINDS, SLEEP_RETENTION_DAYS, SLEEP_SOURCES } from './sleep.js';
 import {
@@ -11,8 +14,11 @@ import {
   daysBetween,
 } from './time.js';
 
-export const SCHEMA_VERSION = 2;
-export const SUPPORTED_PREVIOUS_VERSIONS = [1];
+export const SCHEMA_VERSION = 3;
+export const SUPPORTED_PREVIOUS_VERSIONS = [1, 2];
+export const PORTIONS = ['less', 'normal', 'more'];
+export const DEFAULT_MEAL_KCAL = { breakfast: 400, lunch: 700, snack: 250, dinner: 600 };
+export const FALLBACK_MEAL_KCAL = 400;
 export const MAX_SNACKS_PER_DAY = 30;
 export const STORAGE_KEY = 'canIEatNow.state';
 export const BACKUP_KEY_PREFIX = 'canIEatNow.backup.';
@@ -35,6 +41,11 @@ export const LIMITS = {
   minGapMinutes: { min: 60, max: 360 },
   modifiedMealKcal: { min: 200, max: 800 },
   windowShift: { min: -180, max: 0 },
+  mealKcal: { min: 0, max: 3000 },
+  snackKcal: { min: 0, max: 2000 },
+  bodyFat: { min: 3, max: 70 },
+  energyKcal: { min: 0, max: 20000 },
+  steps: { min: 0, max: 200000 },
 };
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,40}$/;
@@ -63,10 +74,10 @@ export function createDefaultState(now, mealNames) {
       minGapMinutes: 150,
     },
     meals: [
-      { id: 'breakfast', name: names.breakfast || 'breakfast', time: '07:30' },
-      { id: 'lunch', name: names.lunch || 'lunch', time: '12:30' },
-      { id: 'snack', name: names.snack || 'snack', time: '16:00' },
-      { id: 'dinner', name: names.dinner || 'dinner', time: '19:30' },
+      { id: 'breakfast', name: names.breakfast || 'breakfast', time: '07:30', kcal: 400 },
+      { id: 'lunch', name: names.lunch || 'lunch', time: '12:30', kcal: 700 },
+      { id: 'snack', name: names.snack || 'snack', time: '16:00', kcal: 250 },
+      { id: 'dinner', name: names.dinner || 'dinner', time: '19:30', kcal: 600 },
     ],
     profile: {
       weightKg: 70,
@@ -79,10 +90,16 @@ export function createDefaultState(now, mealNames) {
       wakeTime: '07:00',
       sleepTime: '23:00',
       glassMl: 250,
+      birthDate: null,
+      heightSource: null,
+      snackKcal: 250,
     },
     notifications: { enabled: false, kinds: { water: true, mealAllowed: true, windowOpen: true, windowClosing: true } },
     sleep: { log: [], healthEnabled: false, nightAwakeAt: null },
     activity: [],
+    body: { weights: [], fat: [], goalKg: null, healthHeightCm: null, ignoredHealth: [] },
+    health: { body: false, activity: false, nutrition: false, writeWeight: false },
+    energy: { days: {} },
     days: {},
   };
 }
@@ -136,6 +153,7 @@ function sanitizeMeals(input, defaults) {
       id: meal.id,
       name: sanitizeMealName(meal.name, fallback ? fallback.name : meal.id),
       time: sanitizeTime(meal.time, fallback ? fallback.time : '12:00'),
+      kcal: clampInteger(meal.kcal, LIMITS.mealKcal.min, LIMITS.mealKcal.max, DEFAULT_MEAL_KCAL[meal.id] || FALLBACK_MEAL_KCAL),
     });
     if (meals.length >= MAX_MEALS) break;
   }
@@ -155,6 +173,9 @@ function sanitizeProfile(input, defaults) {
     wakeTime: sanitizeTime(source.wakeTime, defaults.wakeTime),
     sleepTime: sanitizeTime(source.sleepTime, defaults.sleepTime),
     glassMl: clampInteger(source.glassMl, LIMITS.glassMl.min, LIMITS.glassMl.max, defaults.glassMl),
+    birthDate: isValidDateKey(source.birthDate) ? source.birthDate : null,
+    heightSource: source.heightSource === 'manual' ? 'manual' : null,
+    snackKcal: clampInteger(source.snackKcal, LIMITS.snackKcal.min, LIMITS.snackKcal.max, defaults.snackKcal),
   };
 }
 
@@ -167,6 +188,7 @@ function sanitizeSnacks(input) {
       id: typeof entry.id === 'string' && ID_PATTERN.test(entry.id) ? entry.id : `s-${Math.round(entry.at).toString(36)}-${index}`,
       at: entry.at,
       minute: clampInteger(entry.minute, LIMITS.dayMinute.min, LIMITS.dayMinute.max, 0),
+      portion: pick(entry.portion, PORTIONS, 'normal'),
     }));
 }
 
@@ -204,6 +226,82 @@ function sanitizeActivity(input, now) {
     .slice(-MAX_ACTIVITY_ENTRIES);
 }
 
+function sanitizeMinuteMap(input) {
+  const result = {};
+  if (!isPlainObject(input)) return result;
+  for (const [id, minutes] of Object.entries(input)) {
+    if (ID_PATTERN.test(id) && Number.isFinite(minutes)) result[id] = clampInteger(minutes, LIMITS.dayMinute.min, LIMITS.dayMinute.max, 0);
+  }
+  return result;
+}
+
+function sanitizeMeasurements(input, valueKey, limits, prefix) {
+  if (!Array.isArray(input)) return [];
+  const entries = input
+    .filter((entry) => isPlainObject(entry) && Number.isFinite(entry.at) && Number.isFinite(entry[valueKey]))
+    .filter((entry) => entry[valueKey] >= limits.min && entry[valueKey] <= limits.max)
+    .map((entry, index) => ({
+      id: typeof entry.id === 'string' && ID_PATTERN.test(entry.id) ? entry.id : prefix + '-' + Math.round(entry.at).toString(36) + '-' + index,
+      at: entry.at,
+      [valueKey]: Math.round(entry[valueKey] * 10) / 10,
+      source: entry.source === 'health' ? 'health' : 'manual',
+      ...(entry.healthWritten === true ? { healthWritten: true } : {}),
+    }));
+  return dedupeMeasurements(entries, valueKey, valueKey === 'kg' ? DEDUPE_KG : 0.1).slice(-MAX_WEIGHT_ENTRIES);
+}
+
+function sanitizeBody(input) {
+  const source = isPlainObject(input) ? input : {};
+  return {
+    weights: sanitizeMeasurements(source.weights, 'kg', LIMITS.weightKg, 'kg'),
+    fat: sanitizeMeasurements(source.fat, 'pct', LIMITS.bodyFat, 'bf'),
+    goalKg: Number.isFinite(source.goalKg) ? clampNumber(source.goalKg, LIMITS.weightKg.min, LIMITS.weightKg.max, null) : null,
+    healthHeightCm: Number.isFinite(source.healthHeightCm) && source.healthHeightCm >= LIMITS.heightCm.min && source.healthHeightCm <= LIMITS.heightCm.max ? Math.round(source.healthHeightCm) : null,
+    ignoredHealth: Array.isArray(source.ignoredHealth)
+      ? source.ignoredHealth.filter((item) => isPlainObject(item) && Number.isFinite(item.at) && Number.isFinite(item.kg)).slice(-MAX_WEIGHT_ENTRIES).map((item) => ({ at: item.at, kg: item.kg }))
+      : [],
+  };
+}
+
+function sanitizeHealth(input) {
+  const source = isPlainObject(input) ? input : {};
+  return { body: source.body === true, activity: source.activity === true, nutrition: source.nutrition === true, writeWeight: source.writeWeight === true };
+}
+
+function optionalKcal(value, limits) {
+  return Number.isFinite(value) && value >= limits.min && value <= limits.max ? Math.round(value) : null;
+}
+
+function sanitizeEnergy(input, now) {
+  const source = isPlainObject(input) && isPlainObject(input.days) ? input.days : {};
+  const todayKey = toDateKey(now);
+  const days = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (!isValidDateKey(key) || !isPlainObject(value)) continue;
+    const age = daysBetween(key, todayKey);
+    if (age > ENERGY_RETENTION_DAYS || age < -1) continue;
+    days[key] = {
+      basal: optionalKcal(value.basal, LIMITS.energyKcal),
+      active: optionalKcal(value.active, LIMITS.energyKcal),
+      total: optionalKcal(value.total, LIMITS.energyKcal),
+      intake: optionalKcal(value.intake, LIMITS.energyKcal),
+      steps: optionalKcal(value.steps, LIMITS.steps),
+      exerciseMinutes: optionalKcal(value.exerciseMinutes, { min: 0, max: 1440 }),
+      workouts: Array.isArray(value.workouts)
+        ? value.workouts
+            .filter((workout) => isPlainObject(workout))
+            .slice(0, 20)
+            .map((workout) => ({
+              type: typeof workout.type === 'string' ? workout.type.replace(/[^A-Za-z]/g, '').slice(0, 40) : 'other',
+              kcal: optionalKcal(workout.kcal, LIMITS.energyKcal),
+              minutes: optionalKcal(workout.minutes, { min: 0, max: 1440 }),
+            }))
+        : [],
+    };
+  }
+  return { days };
+}
+
 function sanitizeDay(input) {
   const source = isPlainObject(input) ? input : {};
   const meals = {};
@@ -211,7 +309,7 @@ function sanitizeDay(input) {
     for (const [id, value] of Object.entries(source.meals)) {
       if (!ID_PATTERN.test(id) || !isPlainObject(value)) continue;
       if (!Number.isFinite(value.eatenAt) || !Number.isFinite(value.minute)) continue;
-      meals[id] = { eatenAt: value.eatenAt, minute: clampInteger(value.minute, LIMITS.dayMinute.min, LIMITS.dayMinute.max, 0) };
+      meals[id] = { eatenAt: value.eatenAt, minute: clampInteger(value.minute, LIMITS.dayMinute.min, LIMITS.dayMinute.max, 0), portion: pick(value.portion, PORTIONS, 'normal') };
     }
   }
   const skips = {};
@@ -220,12 +318,8 @@ function sanitizeDay(input) {
       if (ID_PATTERN.test(id) && SKIP_REASONS.includes(reason)) skips[id] = reason;
     }
   }
-  const adjustments = {};
-  if (isPlainObject(source.adjustments)) {
-    for (const [id, minutes] of Object.entries(source.adjustments)) {
-      if (ID_PATTERN.test(id) && Number.isFinite(minutes)) adjustments[id] = clampInteger(minutes, LIMITS.dayMinute.min, LIMITS.dayMinute.max, 0);
-    }
-  }
+  const adjustments = sanitizeMinuteMap(source.adjustments);
+  const manualTimes = sanitizeMinuteMap(source.manualTimes);
   const water = Array.isArray(source.water)
     ? source.water
         .filter((entry) => isPlainObject(entry) && Number.isFinite(entry.at) && Number.isFinite(entry.ml))
@@ -241,6 +335,7 @@ function sanitizeDay(input) {
     meals,
     skips,
     adjustments,
+    manualTimes,
     water,
     snacks: sanitizeSnacks(source.snacks),
     lastReminder: clampInteger(source.lastReminder, -1, LIMITS.dayMinute.max + 1, -1),
@@ -280,6 +375,9 @@ export function sanitizeState(candidate, defaults, now) {
     notifications: sanitizeNotifications(candidate.notifications, defaults.notifications),
     sleep: sanitizeSleep(candidate.sleep, now),
     activity: sanitizeActivity(candidate.activity, now),
+    body: sanitizeBody(candidate.body),
+    health: sanitizeHealth(candidate.health),
+    energy: sanitizeEnergy(candidate.energy, now),
     days: sanitizeDays(candidate.days, now),
   };
 }
@@ -287,7 +385,8 @@ export function sanitizeState(candidate, defaults, now) {
 export function migrateState(candidate) {
   if (!isPlainObject(candidate)) return null;
   if (candidate.version === SCHEMA_VERSION) return candidate;
-  if (candidate.version === 1) return { ...candidate, version: 2, sleep: { log: [], healthEnabled: false, nightAwakeAt: null }, activity: [] };
+  if (candidate.version === 1) return migrateState({ ...candidate, version: 2, sleep: { log: [], healthEnabled: false, nightAwakeAt: null }, activity: [] });
+  if (candidate.version === 2) return { ...candidate, version: 3, body: { weights: [], fat: [], goalKg: null }, health: { body: false, activity: false, nutrition: false, writeWeight: false }, energy: { days: {} } };
   return null;
 }
 
@@ -307,7 +406,7 @@ export function inspectState(raw) {
 export function parseState(raw, defaults, now) {
   const inspected = inspectState(raw);
   if (inspected.status !== 'ok') return defaults;
-  return sanitizeState(inspected.parsed, defaults, now);
+  return repairDayPlans(sanitizeState(inspected.parsed, defaults, now), now);
 }
 
 export function loadStateWithReport(storage, defaults, now) {
@@ -318,7 +417,7 @@ export function loadStateWithReport(storage, defaults, now) {
     return { state: defaults, backupKey: null, status: 'unavailable' };
   }
   const inspected = inspectState(raw);
-  if (inspected.status === 'ok') return { state: sanitizeState(inspected.parsed, defaults, now), backupKey: null, status: 'ok' };
+  if (inspected.status === 'ok') return { state: repairDayPlans(sanitizeState(inspected.parsed, defaults, now), now), backupKey: null, status: 'ok' };
   if (inspected.status === 'empty') return { state: defaults, backupKey: null, status: 'empty' };
   const backupKey = `${BACKUP_KEY_PREFIX}${now.getTime()}`;
   try {

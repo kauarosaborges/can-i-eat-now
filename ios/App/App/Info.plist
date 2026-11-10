@@ -23,9 +23,9 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>O Can I Eat Now? lê seus dados de sono do app Saúde para saber quando você acordou e ajustar os lembretes de água e refeições. Esses dados ficam no iPhone e não são enviados para nenhum servidor.</string>
+	<string>O Can I Eat Now? lê do app Saúde só os grupos que você ligar: sono, peso, altura, gordura corporal, calorias gastas, passos, exercícios e calorias consumidas. Usamos esses dados para ajustar lembretes, mostrar gráficos e prever seu peso. Eles ficam no iPhone e não são enviados para nenhum servidor.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>O Can I Eat Now? não grava dados no app Saúde. Esta permissão nunca é pedida.</string>
+	<string>Se você ligar essa opção, o Can I Eat Now? salva no app Saúde o peso que você registrar aqui. Nenhum outro dado é gravado.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>

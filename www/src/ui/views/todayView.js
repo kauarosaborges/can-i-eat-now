@@ -4,10 +4,13 @@ import { buildTimeline, nextMeal } from '../../core/meals.js';
 import { inferSleep, isValidDayWake, nextWakeAfter, nightMode, shouldOfferSleepConfirm, sleepEntryForDay } from '../../core/sleep.js';
 import { MS_PER_HOUR, MS_PER_MINUTE, dateAtMinutes, isValidTime, minutesToTime, timeToMinutes, toDateKey, addDaysToKey } from '../../core/time.js';
 import { eatingVerdict } from '../../core/verdict.js';
+import { forecastTomorrow } from '../../core/energy.js';
 import { createFastRing } from '../components/fastRing.js';
 import { openEatSheet } from '../components/eatSheet.js';
+import { openMealTimeSheet } from '../components/mealTimeSheet.js';
+import { confirmDialog } from '../feedback.js';
 import { clear, h, icon, pressable, setText } from '../dom.js';
-import { formatClock, formatDateHeading, formatDayLong, formatDuration, formatTimeOfDay, formatTimestamp } from '../format.js';
+import { formatClock, formatDateHeading, formatDayLong, formatDuration, formatKg, formatTimeOfDay, formatTimestamp } from '../format.js';
 
 const ACTIONABLE = ['allowedNow', 'upcoming', 'missed'];
 
@@ -33,6 +36,14 @@ export function createTodayView({ store, actions, sleepActions }) {
   const ateNowButton = pressable(h('button', { type: 'button', class: 'button button-soft', onClick: () => openEatSheet({ store, actions, preferSnack: nightMode(store.state, new Date()).active }) }, icon('fork'), t('today.ateNow')));
   const verdictCard = h('section', { class: 'card verdict-card' }, h('p', { class: 'verdict-question', text: t('today.question') }), verdict, verdictHint, verdictExtra, ateNowButton);
   const nightCard = h('section', { class: 'card night-card', hidden: true });
+  const forecastText = h('span', { class: 'forecast-mini-value' });
+  const forecastCard = h(
+    'a',
+    { class: 'card forecast-mini', href: '#/body', 'aria-label': t('today.forecastLabel') },
+    h('span', { class: 'forecast-mini-icon', 'aria-hidden': 'true' }, icon('body')),
+    h('span', { class: 'forecast-mini-text' }, h('span', { class: 'forecast-mini-label', text: t('today.forecastLabel') }), forecastText),
+  );
+  let forecastSignature = '';
   const sleepCard = h('section', { class: 'card sleep-card', hidden: true });
   const ringTitle = h('h2', { class: 'card-title' });
   const ring = createFastRing();
@@ -40,6 +51,18 @@ export function createTodayView({ store, actions, sleepActions }) {
   const stageNote = h('p', { class: 'stage-note' });
   const nextMealLine = h('p', { class: 'next-meal' });
   const timelineList = h('ol', { class: 'timeline' });
+  const restoreButton = pressable(
+    h('button', {
+      type: 'button',
+      class: 'button button-small button-ghost restore-day',
+      hidden: true,
+      text: t('mealTime.restoreDay'),
+      onClick: async () => {
+        const confirmed = await confirmDialog({ title: t('mealTime.restoreDayTitle'), body: t('mealTime.restoreDayBody'), confirmLabel: t('mealTime.restoreDayConfirm') });
+        if (confirmed) actions.restoreTodayPlan();
+      },
+    }),
+  );
 
   const element = h(
     'section',
@@ -54,12 +77,13 @@ export function createTodayView({ store, actions, sleepActions }) {
         sleepCard,
         nightCard,
         verdictCard,
+        forecastCard,
         h('section', { class: 'card ring-card' }, ringTitle, ring.element, stageNote, stageList, h('p', { class: 'disclaimer', text: t('today.disclaimer') })),
       ),
       h(
         'div',
         { class: 'split-side' },
-        h('section', { class: 'card timeline-card' }, h('h2', { class: 'card-title', text: t('today.timelineTitle') }), nextMealLine, timelineList),
+        h('section', { class: 'card timeline-card' }, h('h2', { class: 'card-title', text: t('today.timelineTitle') }), nextMealLine, timelineList, restoreButton),
       ),
     ),
   );
@@ -329,7 +353,15 @@ export function createTodayView({ store, actions, sleepActions }) {
         item.adjusted && item.status !== 'done' ? h('span', { class: 'meal-planned', text: t('meal.plannedAt', { time: formatTimeOfDay(item.plannedMinutes) }) }) : null,
       ),
       h('span', { class: 'meal-node', 'aria-hidden': 'true' }, item.status === 'done' ? icon('check') : null),
-      h('div', { class: 'meal-body' }, h('p', { class: 'meal-name', text: name }), h('span', { class: 'pill', text: statusText(item, plan) }), buttons.length ? h('div', { class: 'meal-actions' }, buttons) : null),
+      h(
+        'div',
+        { class: 'meal-body' },
+        item.status === 'done' || item.status === 'notAllowed' && plan.isFastingDay
+          ? h('p', { class: 'meal-name', text: name })
+          : pressable(h('button', { type: 'button', class: 'meal-name meal-name-button', 'aria-label': t('mealTime.open', { name }), onClick: () => openMealTimeSheet({ store, actions, mealId: item.id }) }, name, icon('clock'))),
+        h('span', { class: 'pill', text: statusText(item, plan) }),
+        buttons.length ? h('div', { class: 'meal-actions' }, buttons) : null,
+      ),
     );
   }
 
@@ -353,6 +385,7 @@ export function createTodayView({ store, actions, sleepActions }) {
       const wait = (upcoming.scheduledMinutes - minute) * MS_PER_MINUTE;
       setText(nextMealLine, wait <= 0 ? t('today.nextMealNow', { name }) : t('today.nextMeal', { name, time: formatTimeOfDay(upcoming.scheduledMinutes), duration: formatDuration(wait) }));
     }
+    restoreButton.hidden = !(dayLog.windowShift !== 0 || Object.keys(dayLog.adjustments).length > 0 || Object.keys(dayLog.manualTimes || {}).length > 0);
     const snacks = dayLog.snacks || [];
     const signature = JSON.stringify([timeline.map((item) => [item.id, item.name, item.status, item.scheduledMinutes, item.canEatNow, item.eatenMinutes]), snacks.map((snack) => snack.id)]);
     if (signature === timelineSignature) return;
@@ -386,6 +419,12 @@ export function createTodayView({ store, actions, sleepActions }) {
     renderExtra(extra);
     renderRing(now, result.fast);
     renderTimeline(plan, dayLog, context.minute);
+    const minuteKey = `${toDateKey(now)}:${now.getHours()}:${now.getMinutes()}`;
+    if (minuteKey !== forecastSignature) {
+      forecastSignature = minuteKey;
+      const forecast = forecastTomorrow(state, now);
+      setText(forecastText, t('today.forecast', { kg: formatKg(forecast.kg), low: formatKg(forecast.low), high: formatKg(forecast.high) }));
+    }
   }
 
   return {
@@ -393,6 +432,7 @@ export function createTodayView({ store, actions, sleepActions }) {
     tick,
     refresh() {
       timelineSignature = '';
+      forecastSignature = '';
       nightSignature = '';
       sleepSignature = '';
       tick(new Date());

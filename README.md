@@ -47,6 +47,35 @@ Cada tipo pode ser desligado em Ajustes, Lembretes. O plano é refeito a cada mu
 - **Sono:** pela manhã o app estima quando você dormiu e acordou pelo uso do próprio app (só os horários de abertura, guardados por 3 dias no aparelho) e pede uma confirmação. Com o horário confirmado, o dia de água e os avisos começam na hora em que você acordou de verdade.
 - **App Saúde (só no iPhone):** em Ajustes, Sono, "Usar sono do app Saúde" lê apenas os dados de sono (leitura, nunca escrita). Quando existe sono no app Saúde, ele vale mais que a estimativa e o app não pergunta.
 
+## Corpo, energia e previsão
+
+A aba Corpo registra peso (com edição e exclusão), altura, gordura corporal, data de nascimento e sexo. O peso mais recente também ajusta a meta de água.
+
+- **Gasto do dia:** usa o app Saúde quando tem (total, ou repouso + ativo). Sem ele, estima o gasto em repouso pela fórmula de Mifflin St Jeor (média das fórmulas masculina e feminina quando o sexo não foi informado), multiplica pelo nível de atividade e soma os minutos de exercício. Para hoje, a previsão usa o repouso de um dia típico, o ativo até agora e o ativo típico que ainda falta (mediana dos últimos 7 dias).
+- **Consumo do dia:** usa as calorias consumidas do app Saúde quando existem. Sem elas, soma as calorias típicas de cada refeição registrada (configuradas em Ajustes), vezes 0,7 / 1 / 1,3 para "menos / normal / mais". Dia de jejum total conta 0. Dias sem registro usam as refeições planejadas. A tela sempre mostra qual fonte foi usada.
+- **Peso de gordura:** balanço (consumo menos gasto) dividido por 7700 kcal por kg.
+- **Água e glicogênio:** um jejum de mais de 12h tira até 1,2 kg de água e glicogênio (o máximo a partir de 36h), que voltam depois de um dia de alimentação normal. Isso deixa a previsão realista depois de um dia de jejum e depois do dia em que você volta a comer.
+- **Tendência:** média móvel exponencial das pesagens (fator 0,1). A projeção de 4 semanas usa o balanço médio dos últimos 14 dias quando há pelo menos 7 dias com registro; se não, usa a inclinação da tendência.
+- **Meta:** a data estimada sai da projeção. Com menos de 3 pesagens, tendência para o lado errado ou prazo maior que 2 anos, o app diz que não dá para estimar.
+- **Faixa da previsão:** fica mais larga quando há poucas pesagens nos últimos 30 dias.
+
+Os pesos ficam guardados para sempre (são o seu histórico). Os totais diários de energia e atividade do app Saúde ficam por 180 dias. No PWA tudo é manual, e a previsão funciona com as estimativas.
+
+### App Saúde por grupo
+
+Em Ajustes, App Saúde, cada grupo começa desligado e pede só a leitura dos seus dados:
+
+- Sono;
+- Corpo: peso, altura, gordura;
+- Atividade: calorias em repouso e ativas, total, passos, minutos de exercício e treinos;
+- Alimentação: calorias consumidas.
+
+"Salvar meu peso no app Saúde" pede permissão de escrita só para peso. Desligar um grupo apaga os dados daquele grupo que vieram do Saúde. "Apagar dados de corpo e atividade" remove o que veio do Saúde e mantém os pesos registrados no app.
+
+## Horários de hoje
+
+Toque no nome de uma refeição em Hoje para mudar o horário só de hoje (não aceita horário durante o sono e avisa se ficar fora da janela) ou voltar ao horário padrão. "Restaurar horários de hoje" desfaz todos os ajustes e o adiantamento da janela do dia. Ao abrir, o app descarta ajustes antigos que caiam no sono, antes de acordar ou fora da janela além da tolerância.
+
 ## Pipeline
 
 - Push na `main` roda os testes e publica `www/` no GitHub Pages (`pages.yml`).

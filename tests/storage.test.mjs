@@ -72,7 +72,7 @@ test('days are sanitized and old days pruned', () => {
   const state = parseState(raw, defaults, now);
   assert.deepEqual(Object.keys(state.days), ['2026-11-09']);
   const day = state.days['2026-11-09'];
-  assert.equal(day.windowShift, -180);
+  assert.equal(day.windowShift, 0);
   assert.deepEqual(Object.keys(day.meals), ['lunch']);
   assert.deepEqual(day.skips, { dinner: 'noFit' });
   assert.equal(day.water.length, 1);

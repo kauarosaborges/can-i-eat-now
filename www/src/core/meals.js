@@ -6,7 +6,7 @@ export const MAX_MEALS = 8;
 export const MAX_MEAL_NAME_LENGTH = 30;
 
 export function emptyDayLog() {
-  return { windowShift: 0, meals: {}, skips: {}, adjustments: {}, water: [], snacks: [], lastReminder: -1 };
+  return { windowShift: 0, meals: {}, skips: {}, adjustments: {}, manualTimes: {}, water: [], snacks: [], lastReminder: -1 };
 }
 
 export function cloneDayLog(dayLog) {
@@ -16,6 +16,7 @@ export function cloneDayLog(dayLog) {
     meals: Object.fromEntries(Object.entries(source.meals || {}).map(([id, value]) => [id, { ...value }])),
     skips: { ...(source.skips || {}) },
     adjustments: { ...(source.adjustments || {}) },
+    manualTimes: { ...(source.manualTimes || {}) },
     water: (source.water || []).map((entry) => ({ ...entry })),
     snacks: (source.snacks || []).map((entry) => ({ ...entry })),
     lastReminder: Number.isFinite(source.lastReminder) ? source.lastReminder : -1,
@@ -46,8 +47,14 @@ export function mealsForDay(meals, plan) {
 }
 
 export function scheduledMinutes(entry, dayLog) {
+  const manual = dayLog && dayLog.manualTimes ? dayLog.manualTimes[entry.id] : undefined;
+  if (Number.isFinite(manual)) return manual;
   const adjusted = dayLog && dayLog.adjustments ? dayLog.adjustments[entry.id] : undefined;
   return Number.isFinite(adjusted) ? adjusted : entry.plannedMinutes;
+}
+
+export function hasManualTime(dayLog, mealId) {
+  return Boolean(dayLog && dayLog.manualTimes && Number.isFinite(dayLog.manualTimes[mealId]));
 }
 
 function isBlockedByFastingDay(entry, plan) {
@@ -94,8 +101,10 @@ export function buildTimeline(meals, plan, dayLog, minute, toleranceMinutes) {
       item.status = 'notAllowed';
       return item;
     }
-    item.canEatNow = eatCheck.allowed;
-    if (!isInsideWindow(window, scheduled)) {
+    const manual = hasManualTime(log, entry.id);
+    item.manual = manual;
+    item.canEatNow = eatCheck.allowed || (manual && Boolean(plan.window));
+    if (!manual && !isInsideWindow(window, scheduled)) {
       item.status = 'notAllowed';
       return item;
     }
@@ -117,7 +126,7 @@ export function buildTimeline(meals, plan, dayLog, minute, toleranceMinutes) {
   const latestPast = past.reduce((latest, item) => Math.max(latest, item.scheduledMinutes), -Infinity);
   let hasCurrent = false;
   for (const item of past) {
-    if (windowOpen && (item.scheduledMinutes === latestPast || !isOverdue(item))) {
+    if ((windowOpen || item.manual) && (item.scheduledMinutes === latestPast || !isOverdue(item))) {
       item.status = 'allowedNow';
       hasCurrent = true;
     } else {
@@ -127,7 +136,7 @@ export function buildTimeline(meals, plan, dayLog, minute, toleranceMinutes) {
   const soonest = future.reduce((earliest, item) => Math.min(earliest, item.scheduledMinutes), Infinity);
   for (const item of future) {
     const soon = item.scheduledMinutes - minute <= SOON_THRESHOLD_MINUTES;
-    item.status = !hasCurrent && windowOpen && soon && item.scheduledMinutes === soonest ? 'allowedNow' : 'upcoming';
+    item.status = !hasCurrent && (windowOpen || item.manual) && soon && item.scheduledMinutes === soonest ? 'allowedNow' : 'upcoming';
   }
   return timeline;
 }
@@ -136,7 +145,7 @@ export function nextMeal(timeline) {
   return timeline.find((item) => item.status === 'allowedNow' || item.status === 'upcoming') || null;
 }
 
-export function eatMealNow({ meals, plan, dayLog, mealId, now, minute: contextMinute, toleranceMinutes, minGapMinutes }) {
+export function eatMealNow({ meals, plan, dayLog, mealId, now, minute: contextMinute, toleranceMinutes, minGapMinutes, earliestMinute }) {
   const log = dayLog || emptyDayLog();
   const minute = Math.floor(Number.isFinite(contextMinute) ? contextMinute : minutesOfDay(now));
   const entries = mealsForDay(meals, plan).sort(byScheduled(log));
@@ -144,7 +153,11 @@ export function eatMealNow({ meals, plan, dayLog, mealId, now, minute: contextMi
   if (!target) return { ok: false, reason: 'unknownMeal' };
   if (log.meals[mealId]) return { ok: false, reason: 'alreadyDone' };
   if (isBlockedByFastingDay(target, plan)) return { ok: false, reason: 'fastingDay' };
-  const check = checkEatAt(plan, log, minute, toleranceMinutes);
+  let check = checkEatAt(plan, log, minute, toleranceMinutes);
+  if (!check.allowed && hasManualTime(log, mealId) && plan.window && check.reason !== 'modifiedUsed') {
+    const current = effectiveWindow(plan, log);
+    check = { allowed: true, kind: 'inside', windowShift: current.start - plan.window.start };
+  }
   if (!check.allowed) return { ok: false, reason: check.reason, minutesUntilAllowed: check.minutesUntilAllowed };
 
   const previousWindow = effectiveWindow(plan, log);
@@ -165,27 +178,34 @@ export function eatMealNow({ meals, plan, dayLog, mealId, now, minute: contextMi
   delete next.skips[mealId];
 
   const window = effectiveWindow(plan, next);
-  const followers = entries.filter((entry) => {
+  const later = entries.filter((entry) => {
     if (entry.id === mealId) return false;
     if (log.meals[entry.id] || log.skips[entry.id]) return false;
     if (isBlockedByFastingDay(entry, plan)) return false;
     const scheduled = scheduledMinutes(entry, log);
-    return scheduled > targetScheduled && isInsideWindow(previousWindow, scheduled);
+    if (scheduled <= targetScheduled) return false;
+    return hasManualTime(log, entry.id) || isInsideWindow(previousWindow, scheduled);
   });
 
   const adjustments = [];
   const skipped = [];
   let previous = minute;
-  for (const entry of followers) {
+  later.forEach((entry, index) => {
     const from = scheduledMinutes(entry, log);
-    const candidate = Math.max(from + delta, previous + minGapMinutes);
-    if (candidate >= window.end) {
+    if (hasManualTime(log, entry.id)) {
+      previous = Math.max(previous, from);
+      return;
+    }
+    const candidate = Math.max(from + delta, previous + minGapMinutes, Number.isFinite(earliestMinute) ? earliestMinute : -Infinity);
+    const nextFixed = later.slice(index + 1).find((item) => hasManualTime(log, item.id));
+    const collides = nextFixed && candidate > scheduledMinutes(nextFixed, log) - minGapMinutes;
+    if (candidate >= window.end || collides) {
       undo.skips[entry.id] = log.skips[entry.id] || null;
       undo.adjustments[entry.id] = Number.isFinite(log.adjustments[entry.id]) ? log.adjustments[entry.id] : null;
       next.skips[entry.id] = 'noFit';
       delete next.adjustments[entry.id];
       skipped.push({ id: entry.id, name: entry.name, from });
-      continue;
+      return;
     }
     if (candidate !== from) {
       undo.adjustments[entry.id] = Number.isFinite(log.adjustments[entry.id]) ? log.adjustments[entry.id] : null;
@@ -193,7 +213,7 @@ export function eatMealNow({ meals, plan, dayLog, mealId, now, minute: contextMi
       adjustments.push({ id: entry.id, name: entry.name, from, to: candidate });
     }
     previous = candidate;
-  }
+  });
 
   return {
     ok: true,
@@ -243,6 +263,7 @@ export function resetDayPlan(dayLog) {
   const next = cloneDayLog(dayLog);
   next.windowShift = 0;
   next.adjustments = {};
+  next.manualTimes = {};
   for (const [id, reason] of Object.entries(next.skips)) {
     if (reason === 'noFit') delete next.skips[id];
   }
@@ -340,4 +361,20 @@ export function proposalSignature(result) {
     adjustments: result.adjustments.map((item) => [item.id, item.from, item.to]),
     skipped: result.skipped.map((item) => item.id),
   });
+}
+
+export function setManualMealTime(dayLog, mealId, minute) {
+  const next = cloneDayLog(dayLog);
+  next.manualTimes[mealId] = Math.round(minute);
+  delete next.adjustments[mealId];
+  if (next.skips[mealId] === 'noFit') delete next.skips[mealId];
+  return next;
+}
+
+export function restoreMealTime(dayLog, mealId) {
+  const next = cloneDayLog(dayLog);
+  delete next.manualTimes[mealId];
+  delete next.adjustments[mealId];
+  if (next.skips[mealId] === 'noFit') delete next.skips[mealId];
+  return next;
 }

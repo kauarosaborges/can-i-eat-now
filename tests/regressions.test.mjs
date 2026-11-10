@@ -177,7 +177,7 @@ test('night shift worker gets the 00:00 reminder at 23:30', () => {
 test('corrupt or unknown version state is backed up before reset', () => {
   const now = localDate('2026-11-09', '10:00');
   const defaults = createDefaultState(now, MEAL_NAMES);
-  const raw = JSON.stringify({ version: 3, onboarded: true });
+  const raw = JSON.stringify({ version: 9, onboarded: true });
   const storage = memoryStorage({ [STORAGE_KEY]: raw });
   const report = loadStateWithReport(storage, defaults, now);
   assert.equal(report.status, 'unknownVersion');

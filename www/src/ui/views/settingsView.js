@@ -60,6 +60,7 @@ export function createSettingsView({ store, openOnboarding, sleepActions, bodyAc
       groupToggle('body', groups.body, (wanted) => bodyActions.setHealthGroup('body', wanted)),
       groupToggle('activity', groups.activity, (wanted) => bodyActions.setHealthGroup('activity', wanted)),
       groupToggle('nutrition', groups.nutrition, (wanted) => bodyActions.setHealthGroup('nutrition', wanted)),
+      groupToggle('heart', groups.heart, (wanted) => bodyActions.setHealthGroup('heart', wanted)),
       (() => {
         const control = toggle({
           checked: groups.writeWeight,

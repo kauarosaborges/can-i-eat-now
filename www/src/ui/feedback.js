@@ -64,7 +64,26 @@ export function openOverlay({ className, content, onClose, labelledBy, variant }
     if (onClose) onClose(result);
   };
   const onKey = (event) => {
-    if (event.key === 'Escape') close(false);
+    if (event.key === 'Escape') {
+      close(false);
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = [...panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((element) => !element.disabled && element.offsetParent !== null);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      panel.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && (document.activeElement === first || !panel.contains(document.activeElement))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !panel.contains(document.activeElement))) {
+      event.preventDefault();
+      first.focus();
+    }
   };
   backdrop.addEventListener('click', (event) => {
     if (event.target === backdrop) close(false);

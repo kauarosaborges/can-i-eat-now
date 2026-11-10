@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v9';
+const CACHE_VERSION = 'v11';
 const CACHE_NAME = `can-i-eat-now-${CACHE_VERSION}`;
 
 const PRECACHE = [
@@ -24,11 +24,14 @@ const PRECACHE = [
   'src/core/healthMerge.js',
   'src/core/fasting.js',
   'src/core/meals.js',
+  'src/core/navigation.js',
   'src/core/hydration.js',
   'src/core/history.js',
   'src/core/storage.js',
   'src/core/notificationPlan.js',
   'src/core/sleep.js',
+  'src/core/sleepQuality.js',
+  'src/core/summary.js',
   'src/core/verdict.js',
   'src/ui/actions.js',
   'src/ui/bodyActions.js',
@@ -36,6 +39,7 @@ const PRECACHE = [
   'src/ui/dom.js',
   'src/ui/feedback.js',
   'src/ui/format.js',
+  'src/ui/healthEpoch.js',
   'src/ui/forms.js',
   'src/ui/nativeNotifications.js',
   'src/ui/notifications.js',
@@ -48,11 +52,15 @@ const PRECACHE = [
   'src/ui/components/fastRing.js',
   'src/ui/components/mealTimeSheet.js',
   'src/ui/components/reminderPrompt.js',
+  'src/ui/components/sleepConfirmCard.js',
+  'src/ui/components/sleepEntrySheet.js',
+  'src/ui/components/summaryGrid.js',
   'src/ui/components/waveVessel.js',
   'src/ui/views/historyView.js',
   'src/ui/views/bodyView.js',
   'src/ui/views/onboarding.js',
   'src/ui/views/settingsView.js',
+  'src/ui/views/sleepView.js',
   'src/ui/views/todayView.js',
   'src/ui/views/waterView.js',
 ];

@@ -1,5 +1,6 @@
 import { t } from './i18n/index.js';
 import { dueReminder, hydrationDayContext } from './core/hydration.js';
+import { ROUTE_CONFIG, resolveRoute, routeOrder, tabIndexOf, tabRoutes } from './core/navigation.js';
 import { nightMode, waterScheduleFor } from './core/sleep.js';
 import { resolveNotificationsEnabled } from './core/storage.js';
 import { toDateKey } from './core/time.js';
@@ -18,16 +19,19 @@ import { createStore } from './ui/store.js';
 import { createHistoryView } from './ui/views/historyView.js';
 import { openOnboarding } from './ui/views/onboarding.js';
 import { createSettingsView } from './ui/views/settingsView.js';
+import { createSleepView } from './ui/views/sleepView.js';
 import { createTodayView } from './ui/views/todayView.js';
 import { createWaterView } from './ui/views/waterView.js';
 
-const ROUTES = [
-  { id: 'today', icon: 'today', create: createTodayView },
-  { id: 'water', icon: 'water', create: createWaterView },
-  { id: 'body', icon: 'body', create: createBodyView },
-  { id: 'history', icon: 'history', create: createHistoryView },
-  { id: 'settings', icon: 'settings', create: createSettingsView },
-];
+const VIEWS = {
+  today: createTodayView,
+  water: createWaterView,
+  sleep: createSleepView,
+  body: createBodyView,
+  settings: createSettingsView,
+  history: createHistoryView,
+};
+const TABS = tabRoutes(ROUTE_CONFIG);
 
 const store = createStore();
 const actions = createActions(store);
@@ -61,7 +65,7 @@ if (appleTitle) appleTitle.setAttribute('content', t('app.name'));
 document.documentElement.lang = 'pt-BR';
 
 const indicator = h('span', { class: 'tab-indicator', 'aria-hidden': 'true' });
-const tabButtons = ROUTES.map((route) =>
+const tabButtons = TABS.map((route) =>
   pressable(
     h(
       'a',
@@ -72,20 +76,32 @@ const tabButtons = ROUTES.map((route) =>
   ),
 );
 tabBar.setAttribute('aria-label', t('nav.label'));
+tabBar.style.setProperty('--tab-count', String(TABS.length));
 tabBar.append(indicator, ...tabButtons);
 
 function routeFromHash() {
-  const id = (location.hash || '').replace(/^#\/?/, '');
-  return ROUTES.find((route) => route.id === id) || ROUTES[0];
+  return resolveRoute(location.hash);
+}
+
+const scrollPositions = {};
+let enteredFromParent = false;
+
+function goBack() {
+  if (enteredFromParent) history.back();
+  else location.hash = `#/${activeRoute && activeRoute.parent ? activeRoute.parent : 'today'}`;
 }
 
 function showRoute(route) {
   if (activeRoute && activeRoute.id === route.id) return;
-  const previousIndex = activeRoute ? ROUTES.indexOf(activeRoute) : -1;
-  const nextIndex = ROUTES.indexOf(route);
+  const previousRoute = activeRoute;
+  if (previousRoute) scrollPositions[previousRoute.id] = window.scrollY;
+  const returning = Boolean(previousRoute && previousRoute.parent === route.id);
+  enteredFromParent = Boolean(previousRoute && route.parent === previousRoute.id);
+  const previousIndex = activeRoute ? routeOrder(activeRoute) : -1;
+  const nextIndex = routeOrder(route);
   const previousView = activeView;
   activeRoute = route;
-  activeView = route.create({ store, actions, sleepActions, bodyActions, openOnboarding: startOnboarding });
+  activeView = VIEWS[route.id]({ store, actions, sleepActions, bodyActions, openOnboarding: startOnboarding, goBack });
   const element = activeView.element;
   const reduced = prefersReducedMotion();
   if (previousView) {
@@ -97,16 +113,25 @@ function showRoute(route) {
       previousView.destroy();
     }, reduced ? 0 : 240);
   }
-  if (!reduced && previousIndex !== -1) element.classList.add(nextIndex > previousIndex ? 'view-enter-right' : 'view-enter-left');
+  if (!reduced && previousIndex !== -1) {
+    element.classList.add(nextIndex > previousIndex ? 'view-enter-right' : 'view-enter-left');
+    element.addEventListener('animationend', (event) => {
+      if (event.target === element) element.classList.remove('view-enter-right', 'view-enter-left');
+    });
+  }
   outlet.append(element);
   if (activeView.mounted) activeView.mounted();
   activeView.tick(new Date());
+  const tabIndex = tabIndexOf(route);
   tabButtons.forEach((button, index) => {
-    if (index === nextIndex) button.setAttribute('aria-current', 'page');
+    if (index === tabIndex && route.tab) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
+    button.classList.toggle('is-parent', index === tabIndex && !route.tab);
   });
-  tabBar.style.setProperty('--tab-index', String(nextIndex));
-  window.scrollTo(0, 0);
+  tabBar.style.setProperty('--tab-index', String(Math.max(0, tabIndex)));
+  const target = returning ? scrollPositions[route.id] || 0 : 0;
+  window.scrollTo(0, target);
+  if (target > 0) setTimeout(() => window.scrollTo(0, target), reduced ? 0 : 260);
 }
 
 function checkReminders(now) {

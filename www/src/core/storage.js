@@ -3,8 +3,9 @@ import { FASTING_DAY_TYPES, FASTING_MODES, INTERMITTENT_PRESETS, MODIFIED_MEAL_I
 import { repairDayPlans } from './dayRepair.js';
 import { DEDUPE_KG, MAX_WEIGHT_ENTRIES, dedupeMeasurements } from './body.js';
 import { ENERGY_RETENTION_DAYS } from './energy.js';
+import { KNOWN_HEALTH_TYPES, LEGACY_GROUP_TYPES, requiredHealthTypes } from './healthMerge.js';
 import { MAX_MEALS, sanitizeMealName } from './meals.js';
-import { ACTIVITY_RETENTION_MS, MAX_ACTIVITY_ENTRIES, SLEEP_KINDS, SLEEP_RETENTION_DAYS, SLEEP_SOURCES } from './sleep.js';
+import { ACTIVITY_RETENTION_MS, DETAIL_FIELDS, MAX_ACTIVITY_ENTRIES, SLEEP_KINDS, SLEEP_RETENTION_DAYS, SLEEP_SOURCES } from './sleep.js';
 import {
   clampInteger,
   clampNumber,
@@ -14,8 +15,8 @@ import {
   daysBetween,
 } from './time.js';
 
-export const SCHEMA_VERSION = 3;
-export const SUPPORTED_PREVIOUS_VERSIONS = [1, 2];
+export const SCHEMA_VERSION = 4;
+export const SUPPORTED_PREVIOUS_VERSIONS = [1, 2, 3];
 export const PORTIONS = ['less', 'normal', 'more'];
 export const DEFAULT_MEAL_KCAL = { breakfast: 400, lunch: 700, snack: 250, dinner: 600 };
 export const FALLBACK_MEAL_KCAL = 400;
@@ -46,6 +47,13 @@ export const LIMITS = {
   bodyFat: { min: 3, max: 70 },
   energyKcal: { min: 0, max: 20000 },
   steps: { min: 0, max: 200000 },
+  distanceM: { min: 0, max: 300000 },
+  flights: { min: 0, max: 2000 },
+  heartRate: { min: 20, max: 250 },
+  hrv: { min: 1, max: 500 },
+  respiratory: { min: 4, max: 80 },
+  sleepMinutes: { min: 0, max: 1440 },
+  awakenings: { min: 0, max: 200 },
 };
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,40}$/;
@@ -98,7 +106,7 @@ export function createDefaultState(now, mealNames) {
     sleep: { log: [], healthEnabled: false, nightAwakeAt: null },
     activity: [],
     body: { weights: [], fat: [], goalKg: null, healthHeightCm: null, ignoredHealth: [] },
-    health: { body: false, activity: false, nutrition: false, writeWeight: false },
+    health: { body: false, activity: false, nutrition: false, heart: false, writeWeight: false, requested: [] },
     energy: { days: {} },
     days: {},
   };
@@ -207,15 +215,36 @@ function sanitizeSleep(input, now) {
             kind: SLEEP_KINDS.includes(entry.kind) ? entry.kind : 'night',
           };
           if (isValidDateKey(entry.wakeKey)) saved.wakeKey = entry.wakeKey;
+          const detail = sanitizeSleepDetail(entry.detail, Math.round((entry.wokeAt - entry.sleptAt) / 60000));
+          if (detail && saved.kind === 'night') saved.detail = detail;
           return saved;
         })
-        .slice(-30)
+        .slice(-SLEEP_RETENTION_DAYS * 2)
     : [];
   return {
     log,
     healthEnabled: source.healthEnabled === true,
     nightAwakeAt: Number.isFinite(source.nightAwakeAt) ? source.nightAwakeAt : null,
   };
+}
+
+export function sanitizeSleepDetail(input, spanMinutes = LIMITS.sleepMinutes.max) {
+  if (!isPlainObject(input)) return null;
+  const detail = {};
+  for (const field of DETAIL_FIELDS) {
+    const limits = field === 'awakenings' ? LIMITS.awakenings : LIMITS.sleepMinutes;
+    const value = input[field];
+    detail[field] = Number.isFinite(value) && value >= limits.min && value <= limits.max ? Math.round(value) : 0;
+  }
+  detail.awakeKnown = input.awakeKnown === true;
+  const vitals = { hr: [LIMITS.heartRate, 0], hrv: [LIMITS.hrv, 0], resp: [LIMITS.respiratory, 1] };
+  for (const [field, [limits, decimals]] of Object.entries(vitals)) {
+    const value = optionalNumber(input[field], limits, decimals);
+    if (value !== null) detail[field] = value;
+  }
+  if (detail.asleep <= 0) return null;
+  if (detail.asleep > spanMinutes + 5 || detail.deep + detail.rem + detail.core > detail.asleep + 5) return null;
+  return detail;
 }
 
 function sanitizeActivity(input, now) {
@@ -265,7 +294,21 @@ function sanitizeBody(input) {
 
 function sanitizeHealth(input) {
   const source = isPlainObject(input) ? input : {};
-  return { body: source.body === true, activity: source.activity === true, nutrition: source.nutrition === true, writeWeight: source.writeWeight === true };
+  const requested = Array.isArray(source.requested) ? [...new Set(source.requested.filter((type) => KNOWN_HEALTH_TYPES.includes(type)))] : [];
+  return {
+    body: source.body === true,
+    activity: source.activity === true,
+    nutrition: source.nutrition === true,
+    heart: source.heart === true,
+    writeWeight: source.writeWeight === true,
+    requested,
+  };
+}
+
+function optionalNumber(value, limits, decimals = 0) {
+  if (!Number.isFinite(value) || value < limits.min || value > limits.max) return null;
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
 }
 
 function optionalKcal(value, limits) {
@@ -287,6 +330,12 @@ function sanitizeEnergy(input, now) {
       intake: optionalKcal(value.intake, LIMITS.energyKcal),
       steps: optionalKcal(value.steps, LIMITS.steps),
       exerciseMinutes: optionalKcal(value.exerciseMinutes, { min: 0, max: 1440 }),
+      distanceM: optionalNumber(value.distanceM, LIMITS.distanceM),
+      flights: optionalNumber(value.flights, LIMITS.flights),
+      restingHr: optionalNumber(value.restingHr, LIMITS.heartRate),
+      avgHr: optionalNumber(value.avgHr, LIMITS.heartRate),
+      hrv: optionalNumber(value.hrv, LIMITS.hrv),
+      respiratory: optionalNumber(value.respiratory, LIMITS.respiratory, 1),
       workouts: Array.isArray(value.workouts)
         ? value.workouts
             .filter((workout) => isPlainObject(workout))
@@ -386,7 +435,11 @@ export function migrateState(candidate) {
   if (!isPlainObject(candidate)) return null;
   if (candidate.version === SCHEMA_VERSION) return candidate;
   if (candidate.version === 1) return migrateState({ ...candidate, version: 2, sleep: { log: [], healthEnabled: false, nightAwakeAt: null }, activity: [] });
-  if (candidate.version === 2) return { ...candidate, version: 3, body: { weights: [], fat: [], goalKg: null }, health: { body: false, activity: false, nutrition: false, writeWeight: false }, energy: { days: {} } };
+  if (candidate.version === 2) return migrateState({ ...candidate, version: 3, body: { weights: [], fat: [], goalKg: null }, health: { body: false, activity: false, nutrition: false, writeWeight: false }, energy: { days: {} } });
+  if (candidate.version === 3) {
+    const health = isPlainObject(candidate.health) ? candidate.health : {};
+    return { ...candidate, version: 4, health: { ...health, heart: false, requested: requiredHealthTypes(health, LEGACY_GROUP_TYPES) } };
+  }
   return null;
 }
 

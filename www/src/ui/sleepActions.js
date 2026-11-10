@@ -5,15 +5,25 @@ import {
   currentNightKey,
   recordActivity,
   removeHealthEntries,
+  removeNightEntries,
+  restoreNightEntries,
+  sameDetail,
   sessionFromHealthSamples,
   sleepEntryForDay,
   upsertSleepEntry,
+  vitalsInWindow,
 } from '../core/sleep.js';
-import { MS_PER_HOUR } from '../core/time.js';
+import { MS_PER_HOUR, addDaysToKey } from '../core/time.js';
 import { showToast } from './feedback.js';
+import { bumpHealthEpoch, currentHealthEpoch, trackHealthSync } from './healthEpoch.js';
 import { nativePlugin } from './platform.js';
 
 const HEALTH_SYNC_INTERVAL_MS = 10 * 60 * 1000;
+const NIGHT_VITALS = [
+  { dataType: 'heartRate', field: 'hr', decimals: 0 },
+  { dataType: 'heartRateVariability', field: 'hrv', decimals: 0 },
+  { dataType: 'respiratoryRate', field: 'resp', decimals: 1 },
+];
 
 export function createSleepActions(store) {
   let lastHealthSync = 0;
@@ -28,13 +38,31 @@ export function createSleepActions(store) {
     store.replace({ ...state, sleep: { ...state.sleep, log, nightAwakeAt: null } }, reason);
   }
 
+  async function nightVitals(plugin, session) {
+    const vitals = {};
+    for (const item of NIGHT_VITALS) {
+      try {
+        const result = await plugin.readSamples({ dataType: item.dataType, startDate: new Date(session.sleptAt).toISOString(), endDate: new Date(session.wokeAt).toISOString(), limit: 2000, ascending: true });
+        const value = vitalsInWindow(result && Array.isArray(result.samples) ? result.samples : [], session.sleptAt, session.wokeAt, item.decimals);
+        if (value !== null) vitals[item.field] = value;
+      } catch {
+        continue;
+      }
+    }
+    return vitals;
+  }
+
   async function syncHealth(force = false, notifyEmpty = false) {
-    const state = store.state;
     const plugin = healthPlugin();
-    if (!plugin || !state.sleep.healthEnabled) return false;
+    if (!plugin || !store.state.sleep.healthEnabled) return false;
     const now = new Date();
     if (!force && now.getTime() - lastHealthSync < HEALTH_SYNC_INTERVAL_MS) return false;
     lastHealthSync = now.getTime();
+    return trackHealthSync(() => runSync(plugin, now, notifyEmpty));
+  }
+
+  async function runSync(plugin, now, notifyEmpty) {
+    const epoch = currentHealthEpoch();
     let samples = [];
     try {
       const result = await plugin.readSamples({
@@ -51,15 +79,25 @@ export function createSleepActions(store) {
       return false;
     }
     const profile = store.state.profile;
-    const session = sessionFromHealthSamples(samples, now, profile, currentNightKey(profile, now));
-    if (!session) {
+    const currentKey = currentNightKey(profile, now);
+    const sessions = [currentKey, addDaysToKey(currentKey, -1)].map((key) => sessionFromHealthSamples(samples, now, profile, key)).filter(Boolean);
+    if (sessions.length === 0) {
       if (notifyEmpty && samples.length === 0) showToast(t('toast.healthEmpty'), { tone: 'warning', duration: 8000 });
       return false;
     }
-    const current = sleepEntryForDay(store.state.sleep.log, profile, session.wakeKey);
-    if (current && current.source === 'health' && current.sleptAt === session.sleptAt && current.wokeAt === session.wokeAt) return false;
-    saveSleep(session);
-    return true;
+    let changed = false;
+    for (const session of sessions) {
+      if (store.state.health.heart) {
+        const vitals = await nightVitals(plugin, session);
+        if (session.detail && Object.keys(vitals).length > 0) session.detail = { ...session.detail, ...vitals };
+      }
+      if (epoch !== currentHealthEpoch() || !store.state.sleep.healthEnabled) return false;
+      const current = sleepEntryForDay(store.state.sleep.log, store.state.profile, session.wakeKey);
+      if (current && current.source === 'health' && current.sleptAt === session.sleptAt && current.wokeAt === session.wokeAt && sameDetail(current.detail, session.detail)) continue;
+      saveSleep(session);
+      changed = true;
+    }
+    return changed;
   }
 
   return {
@@ -74,6 +112,24 @@ export function createSleepActions(store) {
       saveSleep(awakeNightEntry(store.state.profile, wakeKey));
       showToast(t('toast.sleepSaved'), { tone: 'success' });
     },
+    deleteNight(wakeKey) {
+      const state = store.state;
+      const previous = state.sleep.log;
+      const log = removeNightEntries(previous, state.profile, wakeKey);
+      if (log.length === previous.length) return false;
+      const removed = previous.filter((entry) => !log.includes(entry));
+      store.replace({ ...state, sleep: { ...state.sleep, log } }, 'sleep');
+      showToast(t('toast.sleepDeleted'), {
+        action: {
+          label: t('common.undo'),
+          onClick: () => {
+            const current = store.state;
+            store.replace({ ...current, sleep: { ...current.sleep, log: restoreNightEntries(current.sleep.log, current.profile, wakeKey, removed) } }, 'sleep');
+          },
+        },
+      });
+      return true;
+    },
     markAwakeAtNight() {
       const state = store.state;
       store.replace({ ...state, sleep: { ...state.sleep, nightAwakeAt: Date.now() } }, 'sleep');
@@ -86,6 +142,7 @@ export function createSleepActions(store) {
       store.replace({ ...state, activity: next }, 'activity');
     },
     clearSleepData() {
+      bumpHealthEpoch();
       const state = store.state;
       store.replace({ ...state, activity: [], sleep: { ...state.sleep, log: [], nightAwakeAt: null } }, 'sleep');
     },
@@ -93,6 +150,7 @@ export function createSleepActions(store) {
     async setHealthEnabled(enabled) {
       const state = store.state;
       if (!enabled) {
+        bumpHealthEpoch();
         store.replace({ ...state, sleep: { ...state.sleep, healthEnabled: false, log: removeHealthEntries(state.sleep.log), nightAwakeAt: null } }, 'sleep');
         return false;
       }

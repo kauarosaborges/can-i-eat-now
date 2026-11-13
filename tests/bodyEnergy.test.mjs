@@ -175,11 +175,11 @@ test('schema v2 migrates through v3 with body, health and energy defaults', () =
   const now = at('09:00');
   const raw = JSON.stringify({ version: 2, onboarded: true, meals: [{ id: 'lunch', name: 'Almoço', time: '12:30' }], profile: { weightKg: 81 }, sleep: { log: [], healthEnabled: true } });
   const state = parseState(raw, createDefaultState(now, MEAL_NAMES), now);
-  assert.equal(state.version, 4);
+  assert.equal(state.version, 5);
   assert.equal(state.sleep.healthEnabled, true);
   assert.equal(state.meals[0].kcal, 700);
-  assert.deepEqual(state.body, { weights: [], fat: [], goalKg: null, healthHeightCm: null, ignoredHealth: [] });
-  assert.deepEqual(state.health, { body: false, activity: false, nutrition: false, heart: false, writeWeight: false, requested: [] });
+  assert.deepEqual(state.body, { weights: [], fat: [], goalKg: null, healthHeightCm: null, ignoredHealth: [], ignoredHealthFat: [] });
+  assert.deepEqual(state.health, { body: false, activity: false, nutrition: false, heart: false, writeWeight: false, writeBodyFat: false, writeBloodPressure: false, requested: [] });
   assert.deepEqual(state.energy, { days: {} });
   assert.equal(state.profile.snackKcal, 250);
   const old = parseState(JSON.stringify({ version: 3, energy: { days: { '2026-01-01': { basal: 1600 }, [DAY]: { steps: 9000 } } } }), createDefaultState(now, MEAL_NAMES), now);

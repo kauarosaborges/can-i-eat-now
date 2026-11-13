@@ -14,6 +14,11 @@ import { permissionState, setNativeBackend, showSystemNotification } from './ui/
 import { isNative } from './ui/platform.js';
 import { createBodyActions } from './ui/bodyActions.js';
 import { createSleepActions } from './ui/sleepActions.js';
+import { createMeasureActions } from './ui/measureActions.js';
+import { createGuidesView } from './ui/views/guidesView.js';
+import { createMeasureView } from './ui/views/measureView.js';
+import { createPressureView } from './ui/views/pressureView.js';
+import { createReportView } from './ui/views/reportView.js';
 import { createBodyView } from './ui/views/bodyView.js';
 import { createStore } from './ui/store.js';
 import { createHistoryView } from './ui/views/historyView.js';
@@ -30,6 +35,10 @@ const VIEWS = {
   body: createBodyView,
   settings: createSettingsView,
   history: createHistoryView,
+  measure: createMeasureView,
+  guides: createGuidesView,
+  report: createReportView,
+  pressure: createPressureView,
 };
 const TABS = tabRoutes(ROUTE_CONFIG);
 
@@ -37,6 +46,7 @@ const store = createStore();
 const actions = createActions(store);
 const sleepActions = createSleepActions(store);
 const bodyActions = createBodyActions(store);
+const measureActions = createMeasureActions(store, bodyActions);
 const nativeNotifications = isNative()
   ? createNativeNotifications({
       store,
@@ -101,7 +111,7 @@ function showRoute(route) {
   const nextIndex = routeOrder(route);
   const previousView = activeView;
   activeRoute = route;
-  activeView = VIEWS[route.id]({ store, actions, sleepActions, bodyActions, openOnboarding: startOnboarding, goBack });
+  activeView = VIEWS[route.id]({ store, actions, sleepActions, bodyActions, measureActions, openOnboarding: startOnboarding, goBack });
   const element = activeView.element;
   const reduced = prefersReducedMotion();
   if (previousView) {
@@ -137,6 +147,7 @@ function showRoute(route) {
 function checkReminders(now) {
   const state = store.state;
   if (!state.onboarded || onboardingOpen) return;
+  if (activeRoute && activeRoute.id === 'measure') return;
   const context = hydrationDayContext(state.profile, now);
   const minute = Math.floor(context.minute);
   const checkKey = `${context.key}:${minute}`;
@@ -236,7 +247,7 @@ document.addEventListener('focusout', () => {
 
 if (nativeNotifications) {
   store.subscribe((state, reason) => {
-    if (reason !== 'reminder' && reason !== 'activity') nativeNotifications.schedule();
+    if (reason !== 'reminder' && reason !== 'activity' && reason !== 'measureDraft') nativeNotifications.schedule();
   });
   nativeNotifications.refreshPermission().then(() => nativeNotifications.schedule());
 }

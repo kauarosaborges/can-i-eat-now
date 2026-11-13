@@ -21,10 +21,10 @@ const DAY = '2026-11-09';
 const now = localDate(DAY, '10:00');
 const defaults = () => createDefaultState(now, MEAL_NAMES);
 
-test('v3 state migrates to v4 marking the old types as already requested', () => {
+test('v3 state migrates through v4 marking the old types as already requested', () => {
   const raw = JSON.stringify({ version: 3, onboarded: true, health: { body: false, activity: true, nutrition: false, writeWeight: false }, energy: { days: { [DAY]: { steps: 4000 } } } });
   const state = parseState(raw, defaults(), now);
-  assert.equal(state.version, 4);
+  assert.equal(state.version, 5);
   assert.equal(state.health.heart, false);
   assert.ok(state.health.requested.includes('steps'));
   assert.ok(!state.health.requested.includes('distance'));
@@ -71,7 +71,7 @@ test('new energy fields and sleep detail are sanitized on load', () => {
 
 test('required and missing types follow enabled groups and requested list', () => {
   const health = { body: false, activity: false, nutrition: false, heart: true, requested: [] };
-  assert.deepEqual(requiredHealthTypes(health), ['restingHeartRate', 'heartRate', 'heartRateVariability', 'respiratoryRate']);
+  assert.deepEqual(requiredHealthTypes(health), ['restingHeartRate', 'heartRate', 'heartRateVariability', 'respiratoryRate', 'bloodPressure']);
   const granted = withRequestedTypes(health, requiredHealthTypes(health));
   assert.deepEqual(missingHealthTypes(granted), []);
   assert.deepEqual(withRequestedTypes(health, ['bogus']).requested, []);

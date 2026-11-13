@@ -5,6 +5,10 @@ export const ROUTE_CONFIG = [
   { id: 'body', icon: 'body', tab: true },
   { id: 'settings', icon: 'settings', tab: true },
   { id: 'history', icon: 'history', tab: false, parent: 'today' },
+  { id: 'measure', icon: 'ruler', tab: false, parent: 'body' },
+  { id: 'guides', icon: 'info', tab: false, parent: 'body' },
+  { id: 'report', icon: 'history', tab: false, parent: 'body' },
+  { id: 'pressure', icon: 'heart', tab: false, parent: 'body' },
 ];
 
 export function tabRoutes(config = ROUTE_CONFIG) {

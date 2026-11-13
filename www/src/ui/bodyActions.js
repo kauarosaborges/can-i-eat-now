@@ -3,9 +3,11 @@ import { BODY_FAT_LIMITS, createBodyEntryId, mergeWeights, roundKg } from '../co
 import {
   HEALTH_GROUPS,
   HEALTH_GROUP_TYPES,
+  HEALTH_WRITE_FLAGS,
   addIgnored,
   dailyFromSamples,
   dayChunks,
+  healthWriteTypes,
   mergeHealthSync,
   missingHealthTypes,
   removeIgnored,
@@ -17,6 +19,8 @@ import {
   withRequestedTypes,
 } from '../core/healthMerge.js';
 import { weightNeedsConfirmation } from '../core/energy.js';
+import { validateReading } from '../core/bloodPressure.js';
+import { createDefaultMeasurements } from '../core/storage.js';
 import { MS_PER_HOUR, isValidDateKey, toDateKey } from '../core/time.js';
 import { showToast } from './feedback.js';
 import { bumpHealthEpoch, currentHealthEpoch, trackHealthSync } from './healthEpoch.js';
@@ -129,7 +133,7 @@ export function createBodyActions(store) {
     const missing = missingHealthTypes(health);
     if (missing.length === 0 || Date.now() < authRetryAt) return;
     try {
-      await plugin.requestAuthorization({ read: requiredHealthTypes(health), write: health.writeWeight ? ['weight'] : [] });
+      await plugin.requestAuthorization({ read: requiredHealthTypes(health), write: healthWriteTypes(health) });
     } catch {
       authRetryAt = Date.now() + AUTH_RETRY_MS;
       return;
@@ -152,7 +156,7 @@ export function createBodyActions(store) {
     const groups = store.state.health;
     const startDate = syncStartDate(now, SYNC_DAYS).toISOString();
     const endDate = now.toISOString();
-    const snapshot = { body: null, days: {} };
+    const snapshot = { body: null, days: {}, bloodPressure: null };
     if (groups.body) {
       const weights = (await readSamples(plugin, 'weight', WEIGHT_HISTORY_DAYS))
         .map((sample) => ({ at: Date.parse(sample.endDate || sample.startDate), kg: roundKg(sample.value) }))
@@ -169,6 +173,12 @@ export function createBodyActions(store) {
         if (value >= 100 && value <= 250) heightCm = Math.round(value);
       }
       snapshot.body = { weights, fat, heightCm };
+    }
+    if (groups.heart) {
+      snapshot.bloodPressure = (await readSamples(plugin, 'bloodPressure', WEIGHT_HISTORY_DAYS))
+        .map((sample) => ({ at: Date.parse(sample.endDate || sample.startDate), systolic: Math.round(sample.systolic), diastolic: Math.round(sample.diastolic), pulse: null }))
+        .filter((entry) => Number.isFinite(entry.at) && validateReading(entry) === null)
+        .map((entry) => ({ id: createBodyEntryId('bp', entry.at), ...entry, count: 1, source: 'health' }));
     }
     const touch = (key) => {
       if (!isValidDateKey(key)) return null;
@@ -289,7 +299,7 @@ export function createBodyActions(store) {
         if (!plugin) return false;
         const read = requiredHealthTypes(nextGroups);
         try {
-          await plugin.requestAuthorization({ read, write: nextGroups.writeWeight ? ['weight'] : [] });
+          await plugin.requestAuthorization({ read, write: healthWriteTypes(nextGroups) });
         } catch {
           showToast(t('toast.healthDenied'), { tone: 'warning' });
           return false;
@@ -301,25 +311,39 @@ export function createBodyActions(store) {
       store.replace(stripHealthGroup({ ...state, health: nextGroups }, group), 'body');
       return false;
     },
-    async setWriteWeight(enabled) {
+    async setHealthWrite(flag, enabled) {
       const plugin = health();
+      const type = HEALTH_WRITE_FLAGS[flag];
+      if (!type) return false;
       if (enabled) {
         if (!plugin) return false;
         try {
-          await plugin.requestAuthorization({ read: [], write: ['weight'] });
+          await plugin.requestAuthorization({ read: [], write: [type] });
         } catch {
           showToast(t('toast.healthDenied'), { tone: 'warning' });
           return false;
         }
       }
-      store.replace({ ...store.state, health: { ...store.state.health, writeWeight: enabled } }, 'body');
+      store.replace({ ...store.state, health: { ...store.state.health, [flag]: enabled } }, 'body');
       return enabled;
+    },
+    async saveHealthSample(flag, options) {
+      const plugin = health();
+      if (!plugin || !store.state.health[flag]) return false;
+      try {
+        await plugin.saveSample(options);
+        return true;
+      } catch {
+        showToast(t('toast.healthWriteFailed'), { tone: 'warning' });
+        return false;
+      }
     },
     clearBodyAndActivity() {
       bumpHealthEpoch();
       const state = store.state;
-      const body = { ...state.body, weights: state.body.weights.filter((entry) => entry.source !== 'health'), fat: state.body.fat.filter((entry) => entry.source !== 'health'), healthHeightCm: null };
-      store.replace(withLatestWeight({ ...state, energy: { days: {} } }, body), 'body');
+      const body = { ...state.body, weights: state.body.weights.filter((entry) => entry.source !== 'health'), fat: state.body.fat.filter((entry) => entry.source !== 'health'), healthHeightCm: null, ignoredHealthFat: [] };
+      const measurements = { ...state.measurements, bloodPressure: state.measurements.bloodPressure.filter((entry) => entry.source !== 'health'), ignoredHealthPressure: [] };
+      store.replace(withLatestWeight({ ...state, energy: { days: {} }, measurements }, body), 'body');
       lastSync = 0;
     },
     clearAllHealthData(defaults) {
@@ -328,15 +352,17 @@ export function createBodyActions(store) {
       store.replace(
         {
           ...state,
-          body: { weights: [], fat: [], goalKg: null, healthHeightCm: null, ignoredHealth: [] },
-          health: { body: false, activity: false, nutrition: false, heart: false, writeWeight: false, requested: [] },
+          body: { weights: [], fat: [], goalKg: null, healthHeightCm: null, ignoredHealth: [], ignoredHealthFat: [] },
+          health: { body: false, activity: false, nutrition: false, heart: false, writeWeight: false, writeBodyFat: false, writeBloodPressure: false, requested: [] },
           energy: { days: {} },
+          measurements: createDefaultMeasurements(),
           activity: [],
           sleep: { log: [], healthEnabled: false, nightAwakeAt: null },
           profile: { ...state.profile, heightCm: defaults.heightCm, heightSource: null, birthDate: null, sex: defaults.sex, weightKg: defaults.weightKg },
         },
         'body',
       );
+      store.clearBackups();
       lastSync = 0;
     },
   };

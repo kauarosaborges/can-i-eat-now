@@ -8,6 +8,7 @@ import { eatingVerdict } from '../../core/verdict.js';
 import { createFastRing } from '../components/fastRing.js';
 import { createSleepConfirmCard } from '../components/sleepConfirmCard.js';
 import { createSummaryGrid } from '../components/summaryGrid.js';
+import { reminderCard } from '../components/measureParts.js';
 import { isHealthSyncing, onHealthSyncChange } from '../healthEpoch.js';
 import { openEatSheet } from '../components/eatSheet.js';
 import { openMealTimeSheet } from '../components/mealTimeSheet.js';
@@ -25,7 +26,9 @@ function statusText(item, plan) {
   return t(`meal.status.${item.status}`);
 }
 
-export function createTodayView({ store, actions, sleepActions }) {
+export function createTodayView({ store, actions, sleepActions, measureActions }) {
+  const measureDue = h('div', { class: 'measure-due-slot' });
+  let measureDueSignature = '';
   const dateLabel = h('p', { class: 'view-eyebrow' });
   const verdictWord = h('span', { class: 'verdict-word' });
   const verdict = h('div', { class: 'verdict', 'aria-live': 'polite' }, h('span', { class: 'verdict-glow', 'aria-hidden': 'true' }), h('span', { class: 'verdict-ripple', 'aria-hidden': 'true' }), verdictWord);
@@ -77,6 +80,7 @@ export function createTodayView({ store, actions, sleepActions }) {
         h('section', { class: 'card timeline-card' }, h('h2', { class: 'card-title', text: t('today.timelineTitle') }), nextMealLine, timelineList, restoreButton),
       ),
     ),
+    measureDue,
     summaryGrid.element,
   );
   const stopSyncWatch = onHealthSyncChange(() => renderSummary(new Date(), true));
@@ -340,6 +344,17 @@ export function createTodayView({ store, actions, sleepActions }) {
     renderRing(now, result.fast);
     renderTimeline(plan, dayLog, context.minute);
     renderSummary(now);
+    renderMeasureDue(now);
+  }
+
+  function renderMeasureDue(now) {
+    const measurements = store.state.measurements;
+    const signature = `${Math.floor(now.getTime() / 60000)}:${measurements.sessions.length}:${JSON.stringify(measurements.reminder)}`;
+    if (signature === measureDueSignature || !measureActions) return;
+    measureDueSignature = signature;
+    clear(measureDue);
+    const card = reminderCard({ store, measureActions, now });
+    if (card) measureDue.append(card);
   }
 
   return {
@@ -348,6 +363,7 @@ export function createTodayView({ store, actions, sleepActions }) {
     refresh() {
       timelineSignature = '';
       summarySignature = '';
+      measureDueSignature = '';
       nightSignature = '';
       sleepConfirm.reset();
       tick(new Date());

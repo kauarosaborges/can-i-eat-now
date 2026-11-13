@@ -1,4 +1,7 @@
 import { latestWeightKg } from './body.js';
+import { sessionResults } from './bodyComposition.js';
+import { classify } from './bodyReferences.js';
+import { categoryStatus, classifyBloodPressure } from './bloodPressure.js';
 import { emaTrend } from './energy.js';
 import { buildHistory } from './history.js';
 import { computeDailyGoal, totalWaterMl } from './hydration.js';
@@ -7,6 +10,7 @@ import { MS_PER_DAY, addDaysToKey, toDateKey } from './time.js';
 
 export const SUMMARY_DAYS = 7;
 export const WEIGHT_SPARK_DAYS = 30;
+export const MEASURE_SUMMARY_DAYS = 120;
 
 function dayValue(state, key, field) {
   const day = state.energy && state.energy.days ? state.energy.days[key] : null;
@@ -67,6 +71,27 @@ function historySummary(state, now) {
   return { streak: history.streak, averageHours: history.averageHours, entries: history.entries };
 }
 
+export function pressureSummary(state, now) {
+  const entries = state.measurements ? state.measurements.bloodPressure : [];
+  const since = now.getTime() - MEASURE_SUMMARY_DAYS * MS_PER_DAY;
+  const recent = entries.filter((entry) => entry.at >= since && entry.at <= now.getTime() + 60000);
+  if (recent.length === 0) return null;
+  const latest = recent[recent.length - 1];
+  const category = classifyBloodPressure(latest.systolic, latest.diastolic);
+  return { systolic: latest.systolic, diastolic: latest.diastolic, at: latest.at, category, status: categoryStatus(category) };
+}
+
+export function bodyFatSummary(state, now) {
+  const sessions = state.measurements ? state.measurements.sessions : [];
+  const since = now.getTime() - MEASURE_SUMMARY_DAYS * MS_PER_DAY;
+  for (let index = sessions.length - 1; index >= 0 && sessions[index].at >= since; index -= 1) {
+    const session = sessions[index];
+    const result = sessionResults(session);
+    if (Number.isFinite(result.fatPct)) return { pct: result.fatPct, at: session.at, source: result.fatSource, status: classify('fat', result.fatPct, { sex: session.sex, age: session.age }) };
+  }
+  return null;
+}
+
 export function buildSummary(state, now) {
   return {
     sleep: sleepSummary(state, now),
@@ -82,5 +107,7 @@ export function buildSummary(state, now) {
     hrv: dailyMetric(state, now, 'hrv'),
     respiratory: dailyMetric(state, now, 'respiratory'),
     history: historySummary(state, now),
+    pressure: pressureSummary(state, now),
+    bodyFat: bodyFatSummary(state, now),
   };
 }

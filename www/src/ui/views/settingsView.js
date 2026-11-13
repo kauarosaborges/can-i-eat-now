@@ -4,16 +4,17 @@ import { resetDayPlan } from '../../core/meals.js';
 import { createDefaultState, mergeSettings } from '../../core/storage.js';
 import { clear, h, icon, pressable } from '../dom.js';
 import { confirmDialog, showToast } from '../feedback.js';
-import { flexFields, mealsEditor, modeDetails, modePicker, notificationControl, profileFields, toggle } from '../forms.js';
+import { REMINDER_DAY_LIMITS } from '../../core/measurementReminder.js';
+import { field, flexFields, mealsEditor, modeDetails, modePicker, notificationControl, numberInput, profileFields, timeInput, toggle } from '../forms.js';
 
-const IGNORED_REASONS = ['settings', 'reminder', 'water', 'meal', 'undo', 'day', 'activity', 'sleep', 'body', 'healthSync'];
+const IGNORED_REASONS = ['settings', 'reminder', 'water', 'meal', 'undo', 'day', 'activity', 'sleep', 'body', 'healthSync', 'measure', 'measureDraft'];
 const PLAN_REASONS = ['mode', 'fasting'];
 
 function section(title, ...children) {
   return h('section', { class: 'card settings-section' }, h('h2', { class: 'card-title', text: title }), ...children);
 }
 
-export function createSettingsView({ store, openOnboarding, sleepActions, bodyActions }) {
+export function createSettingsView({ store, openOnboarding, sleepActions, bodyActions, measureActions }) {
   const content = h('div', { class: 'settings-grid' });
   const element = h(
     'section',
@@ -52,6 +53,35 @@ export function createSettingsView({ store, openOnboarding, sleepActions, bodyAc
     return control;
   }
 
+  function writeToggle(flag, checked) {
+    const control = toggle({
+      checked,
+      label: t(`settings.${flag}`),
+      hint: t(`settings.${flag}Hint`),
+      onChange: async (wanted) => {
+        const enabled = await bodyActions.setHealthWrite(flag, wanted);
+        const input = control.querySelector('input');
+        if (input) input.checked = enabled;
+      },
+    });
+    return control;
+  }
+
+  function measureControls() {
+    const reminder = store.state.measurements.reminder;
+    return [
+      toggle({ checked: reminder.enabled, label: t('settings.measureReminder'), hint: t('settings.measureReminderHint'), onChange: (enabled) => measureActions.setReminder({ enabled }) }),
+      h(
+        'div',
+        { class: 'grid-2' },
+        field(t('settings.measureDay'), numberInput({ value: reminder.day, limits: REMINDER_DAY_LIMITS, onCommit: (day) => measureActions.setReminder({ day, dismissedMonth: null }) }), t('settings.measureDayHint')),
+        field(t('settings.measureTime'), timeInput({ value: reminder.time, onCommit: (time) => measureActions.setReminder({ time }) })),
+      ),
+      store.state.notifications.enabled ? null : h('p', { class: 'field-note' }, icon('info'), h('span', { text: t('settings.measureNotificationsOff') })),
+      h('p', { class: 'field-hint', text: t('settings.measureRetention') }),
+    ].filter(Boolean);
+  }
+
   function healthControls() {
     const groups = store.state.health;
     return [
@@ -61,19 +91,9 @@ export function createSettingsView({ store, openOnboarding, sleepActions, bodyAc
       groupToggle('activity', groups.activity, (wanted) => bodyActions.setHealthGroup('activity', wanted)),
       groupToggle('nutrition', groups.nutrition, (wanted) => bodyActions.setHealthGroup('nutrition', wanted)),
       groupToggle('heart', groups.heart, (wanted) => bodyActions.setHealthGroup('heart', wanted)),
-      (() => {
-        const control = toggle({
-          checked: groups.writeWeight,
-          label: t('settings.writeWeight'),
-          hint: t('settings.writeWeightHint'),
-          onChange: async (wanted) => {
-            const enabled = await bodyActions.setWriteWeight(wanted);
-            const input = control.querySelector('input');
-            if (input) input.checked = enabled;
-          },
-        });
-        return control;
-      })(),
+      writeToggle('writeWeight', groups.writeWeight),
+      writeToggle('writeBodyFat', groups.writeBodyFat),
+      writeToggle('writeBloodPressure', groups.writeBloodPressure),
       h(
         'div',
         { class: 'button-row' },
@@ -170,6 +190,7 @@ export function createSettingsView({ store, openOnboarding, sleepActions, bodyAc
       section(t('settings.flexSection'), flexFields(draft, commit)),
       section(t('settings.hydrationSection'), profileFields(draft, commit)),
       section(t('settings.notificationsSection'), notificationControl(draft, commit)),
+      measureActions ? section(t('settings.measureSection'), ...measureControls()) : null,
       sleepActions && sleepActions.healthAvailable() ? section(t('settings.healthSection'), ...healthControls()) : null,
       sleepActions ? section(t('settings.sleepSection'), ...sleepControls()) : null,
       section(

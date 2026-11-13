@@ -573,6 +573,15 @@ export function notificationControl(draft, commit) {
     control,
     native ? null : status,
     kindToggles(draft, commit),
+    toggle({
+      checked: draft.notifications.inAppSound !== false,
+      label: t('notifications.inAppSound'),
+      hint: t('notifications.inAppSoundHint'),
+      onChange: (value) => {
+        draft.notifications.inAppSound = value;
+        commit('notifications');
+      },
+    }),
     native ? null : h('p', { class: 'field-hint', text: t('notifications.inApp') }),
     shouldShowIosHint() ? h('p', { class: 'hint-card' }, icon('info'), h('span', { text: t('water.iosHint') })) : null,
   );

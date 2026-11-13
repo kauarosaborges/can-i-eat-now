@@ -1,5 +1,5 @@
 import { t } from './i18n/index.js';
-import { dueReminder, hydrationDayContext } from './core/hydration.js';
+import { computeDailyGoal, dueReminder, hydrationDayContext, totalWaterMl } from './core/hydration.js';
 import { ROUTE_CONFIG, resolveRoute, routeOrder, tabIndexOf, tabRoutes } from './core/navigation.js';
 import { nightMode, waterScheduleFor } from './core/sleep.js';
 import { resolveNotificationsEnabled } from './core/storage.js';
@@ -12,6 +12,7 @@ import { formatMl } from './ui/format.js';
 import { createNativeNotifications } from './ui/nativeNotifications.js';
 import { permissionState, setNativeBackend, showSystemNotification } from './ui/notifications.js';
 import { isNative } from './ui/platform.js';
+import { installSoundUnlock, playKindSound } from './ui/sound.js';
 import { createBodyActions } from './ui/bodyActions.js';
 import { createSleepActions } from './ui/sleepActions.js';
 import { createMeasureActions } from './ui/measureActions.js';
@@ -164,6 +165,9 @@ function checkReminders(now) {
   const systemEnabled = resolveNotificationsEnabled(state.notifications.enabled, permissionState()) && state.notifications.kinds.water !== false;
   if (systemEnabled && !nativeNotifications) showSystemNotification(t('reminder.notificationBody', { amount: formatMl(ml) }));
   if (document.visibilityState !== 'visible') return;
+  const goalReached = totalWaterMl(dayLog.water) >= computeDailyGoal(state.profile).goalMl;
+  const nativeWillSound = systemEnabled && Boolean(nativeNotifications) && !goalReached;
+  if (state.notifications.inAppSound !== false && !nativeWillSound) playKindSound('water');
   showReminderPrompt({
     ml,
     onDrink: (amount) => {
@@ -172,6 +176,8 @@ function checkReminders(now) {
     },
   });
 }
+
+installSoundUnlock();
 
 function markRemindersHandled() {
   const context = hydrationDayContext(store.state.profile, new Date());

@@ -588,6 +588,8 @@ export const ptBR = {
       scheduleFailed: 'Não foi possível agendar os avisos agora. Vamos tentar de novo em instantes.',
     },
     toggleHint: 'Liga ou desliga os avisos fora do app.',
+    inAppSound: 'Som com o app aberto',
+    inAppSoundHint: 'Toca o som do lembrete de água com o app na tela. Com as notificações do iPhone ligadas, quem toca é a notificação. Respeita o modo silencioso.',
     inApp: 'Com o app aberto, o lembrete aparece na tela mesmo sem permissão.',
   },
   body: {

@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v13';
+const CACHE_VERSION = 'v14';
 const CACHE_NAME = `can-i-eat-now-${CACHE_VERSION}`;
 
 const PRECACHE = [
@@ -10,6 +10,9 @@ const PRECACHE = [
   'icons/icon-512.png',
   'icons/icon-maskable-512.png',
   'icons/apple-touch-icon.png',
+  'sound-water.wav',
+  'sound-chime.wav',
+  'sound-soft.wav',
   'styles/tokens.css',
   'styles/base.css',
   'styles/components.css',
@@ -35,6 +38,7 @@ const PRECACHE = [
   'src/core/history.js',
   'src/core/storage.js',
   'src/core/notificationPlan.js',
+  'src/core/notificationSounds.js',
   'src/core/sleep.js',
   'src/core/sleepQuality.js',
   'src/core/summary.js',
@@ -52,6 +56,7 @@ const PRECACHE = [
   'src/ui/nativeNotifications.js',
   'src/ui/notifications.js',
   'src/ui/platform.js',
+  'src/ui/sound.js',
   'src/ui/sleepActions.js',
   'src/ui/store.js',
   'src/ui/components/barChart.js',

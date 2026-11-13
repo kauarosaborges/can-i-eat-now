@@ -1,5 +1,6 @@
 import { t } from '../i18n/index.js';
 import { MEASUREMENT_KIND, buildNotificationPlan } from '../core/notificationPlan.js';
+import { soundFor } from '../core/notificationSounds.js';
 import { formatMl } from './format.js';
 import { nativePlugin } from './platform.js';
 
@@ -15,7 +16,7 @@ function mapPermission(display) {
   return 'default';
 }
 
-function toNativeNotification(item) {
+export function toNativeNotification(item) {
   const params = item.kind === 'water' ? { amount: formatMl(item.params.ml) } : item.params;
   const notification = {
     id: item.id,
@@ -25,6 +26,8 @@ function toNativeNotification(item) {
     threadIdentifier: item.kind,
     extra: { kind: item.kind },
   };
+  const sound = soundFor(item.kind);
+  if (sound) notification.sound = sound;
   if (item.kind === 'water') notification.actionTypeId = WATER_ACTION_TYPE;
   return notification;
 }

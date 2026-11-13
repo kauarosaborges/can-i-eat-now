@@ -112,7 +112,7 @@ export function createDefaultState(now, mealNames) {
       heightSource: null,
       snackKcal: 250,
     },
-    notifications: { enabled: false, kinds: { water: true, mealAllowed: true, windowOpen: true, windowClosing: true } },
+    notifications: { enabled: false, inAppSound: true, kinds: { water: true, mealAllowed: true, windowOpen: true, windowClosing: true } },
     sleep: { log: [], healthEnabled: false, nightAwakeAt: null },
     activity: [],
     body: { weights: [], fat: [], goalKg: null, healthHeightCm: null, ignoredHealth: [], ignoredHealthFat: [] },
@@ -576,6 +576,7 @@ function sanitizeNotifications(input, defaults) {
   const kinds = isPlainObject(source.kinds) ? source.kinds : {};
   return {
     enabled: source.enabled === true,
+    inAppSound: typeof source.inAppSound === 'boolean' ? source.inAppSound : defaults.inAppSound,
     kinds: Object.fromEntries(Object.keys(defaults.kinds).map((kind) => [kind, typeof kinds[kind] === 'boolean' ? kinds[kind] : defaults.kinds[kind]])),
   };
 }

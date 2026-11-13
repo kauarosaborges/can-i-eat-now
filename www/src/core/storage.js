@@ -5,6 +5,10 @@ import { DEDUPE_KG, MAX_WEIGHT_ENTRIES, dedupeMeasurements } from './body.js';
 import { ENERGY_RETENTION_DAYS } from './energy.js';
 import { KNOWN_HEALTH_TYPES, LEGACY_GROUP_TYPES, requiredHealthTypes } from './healthMerge.js';
 import { MAX_MEALS, sanitizeMealName } from './meals.js';
+import { GIRTH_SITES, MAX_READINGS, MEASURE_SEXES, PROTOCOLS, SKINFOLD_SITES, WAIST_SITES, isValidGirth, isValidSkinfold } from './bodyComposition.js';
+import { BP_ARMS, MAX_BP_READINGS, mergeBloodPressure, validateReading } from './bloodPressure.js';
+import { DEFAULT_REMINDER, REMINDER_DAY_LIMITS } from './measurementReminder.js';
+import { isValidMonthKey } from './measurementReport.js';
 import { ACTIVITY_RETENTION_MS, DETAIL_FIELDS, MAX_ACTIVITY_ENTRIES, SLEEP_KINDS, SLEEP_RETENTION_DAYS, SLEEP_SOURCES } from './sleep.js';
 import {
   clampInteger,
@@ -15,8 +19,14 @@ import {
   daysBetween,
 } from './time.js';
 
-export const SCHEMA_VERSION = 4;
-export const SUPPORTED_PREVIOUS_VERSIONS = [1, 2, 3];
+export const SCHEMA_VERSION = 5;
+export const SUPPORTED_PREVIOUS_VERSIONS = [1, 2, 3, 4];
+export const MEASUREMENT_RETENTION_DAYS = 1830;
+export const MAX_SESSIONS = 400;
+export const MAX_PRESSURE_ENTRIES = 3000;
+export const MAX_IGNORED_PRESSURE = 1000;
+export const DRAFT_RETENTION_DAYS = 14;
+export const MAX_DRAFT_STEP = 60;
 export const PORTIONS = ['less', 'normal', 'more'];
 export const DEFAULT_MEAL_KCAL = { breakfast: 400, lunch: 700, snack: 250, dinner: 600 };
 export const FALLBACK_MEAL_KCAL = 400;
@@ -105,11 +115,16 @@ export function createDefaultState(now, mealNames) {
     notifications: { enabled: false, kinds: { water: true, mealAllowed: true, windowOpen: true, windowClosing: true } },
     sleep: { log: [], healthEnabled: false, nightAwakeAt: null },
     activity: [],
-    body: { weights: [], fat: [], goalKg: null, healthHeightCm: null, ignoredHealth: [] },
-    health: { body: false, activity: false, nutrition: false, heart: false, writeWeight: false, requested: [] },
+    body: { weights: [], fat: [], goalKg: null, healthHeightCm: null, ignoredHealth: [], ignoredHealthFat: [] },
+    health: { body: false, activity: false, nutrition: false, heart: false, writeWeight: false, writeBodyFat: false, writeBloodPressure: false, requested: [] },
     energy: { days: {} },
+    measurements: createDefaultMeasurements(),
     days: {},
   };
+}
+
+export function createDefaultMeasurements() {
+  return { sessions: [], bloodPressure: [], ignoredHealthPressure: [], draft: null, editDraft: null, reminder: { ...DEFAULT_REMINDER }, waistSite: 'navel', lastArm: 'left' };
 }
 
 function isPlainObject(value) {
@@ -275,6 +290,7 @@ function sanitizeMeasurements(input, valueKey, limits, prefix) {
       [valueKey]: Math.round(entry[valueKey] * 10) / 10,
       source: entry.source === 'health' ? 'health' : 'manual',
       ...(entry.healthWritten === true ? { healthWritten: true } : {}),
+      ...(typeof entry.sessionId === 'string' && ID_PATTERN.test(entry.sessionId) ? { sessionId: entry.sessionId } : {}),
     }));
   return dedupeMeasurements(entries, valueKey, valueKey === 'kg' ? DEDUPE_KG : 0.1).slice(-MAX_WEIGHT_ENTRIES);
 }
@@ -289,6 +305,9 @@ function sanitizeBody(input) {
     ignoredHealth: Array.isArray(source.ignoredHealth)
       ? source.ignoredHealth.filter((item) => isPlainObject(item) && Number.isFinite(item.at) && Number.isFinite(item.kg)).slice(-MAX_WEIGHT_ENTRIES).map((item) => ({ at: item.at, kg: item.kg }))
       : [],
+    ignoredHealthFat: Array.isArray(source.ignoredHealthFat)
+      ? source.ignoredHealthFat.filter((item) => isPlainObject(item) && Number.isFinite(item.at) && Number.isFinite(item.pct)).slice(-MAX_WEIGHT_ENTRIES).map((item) => ({ at: item.at, pct: item.pct }))
+      : [],
   };
 }
 
@@ -301,6 +320,8 @@ function sanitizeHealth(input) {
     nutrition: source.nutrition === true,
     heart: source.heart === true,
     writeWeight: source.writeWeight === true,
+    writeBodyFat: source.writeBodyFat === true,
+    writeBloodPressure: source.writeBloodPressure === true,
     requested,
   };
 }
@@ -349,6 +370,152 @@ function sanitizeEnergy(input, now) {
     };
   }
   return { days };
+}
+
+function sanitizeReadings(input) {
+  if (!Array.isArray(input)) return null;
+  const readings = input.filter(isValidSkinfold).slice(0, MAX_READINGS).map((value) => Math.round(value * 10) / 10);
+  return readings.length > 0 ? readings : null;
+}
+
+export function sanitizeSkinfolds(input) {
+  const result = {};
+  if (!isPlainObject(input)) return result;
+  for (const site of SKINFOLD_SITES) {
+    const readings = sanitizeReadings(input[site]);
+    if (readings) result[site] = readings;
+  }
+  return result;
+}
+
+export function sanitizeGirths(input) {
+  const result = {};
+  if (!isPlainObject(input)) return result;
+  for (const site of GIRTH_SITES) {
+    if (isValidGirth(site, input[site])) result[site] = Math.round(input[site] * 10) / 10;
+  }
+  return result;
+}
+
+function validId(value) {
+  return typeof value === 'string' && ID_PATTERN.test(value);
+}
+
+function withinRetention(at, nowMs) {
+  return at <= nowMs + 86400000 && nowMs - at <= MEASUREMENT_RETENTION_DAYS * 86400000;
+}
+
+function sanitizeSession(entry, index, nowMs) {
+  if (!isPlainObject(entry) || !Number.isFinite(entry.at) || !withinRetention(entry.at, nowMs)) return null;
+  if (!MEASURE_SEXES.includes(entry.sex) || !PROTOCOLS.includes(entry.protocol)) return null;
+  const skinfolds = entry.protocol === 'tape' ? {} : sanitizeSkinfolds(entry.skinfolds);
+  const girths = sanitizeGirths(entry.girths);
+  if (Object.keys(skinfolds).length === 0 && Object.keys(girths).length === 0) return null;
+  return {
+    id: validId(entry.id) ? entry.id : `ms-${Math.round(entry.at).toString(36)}-${index}`,
+    at: entry.at,
+    protocol: entry.protocol,
+    sex: entry.sex,
+    age: clampInteger(entry.age, LIMITS.age.min, LIMITS.age.max, 35),
+    weightKg: optionalNumber(entry.weightKg, LIMITS.weightKg, 1),
+    heightCm: clampInteger(entry.heightCm, LIMITS.heightCm.min, LIMITS.heightCm.max, 170),
+    waistSite: pick(entry.waistSite, WAIST_SITES, 'navel'),
+    skinfolds,
+    girths,
+  };
+}
+
+function sanitizePressureEntry(entry, index, nowMs) {
+  if (!isPlainObject(entry) || !Number.isFinite(entry.at) || !withinRetention(entry.at, nowMs)) return null;
+  const reading = { systolic: Math.round(entry.systolic), diastolic: Math.round(entry.diastolic), pulse: Number.isFinite(entry.pulse) ? Math.round(entry.pulse) : null };
+  if (validateReading(reading) !== null) return null;
+  return {
+    id: validId(entry.id) ? entry.id : `bp-${Math.round(entry.at).toString(36)}-${index}`,
+    at: entry.at,
+    ...reading,
+    arm: BP_ARMS.includes(entry.arm) ? entry.arm : null,
+    count: clampInteger(entry.count, 1, MAX_BP_READINGS, 1),
+    source: entry.source === 'health' ? 'health' : 'manual',
+    ...(entry.healthWritten === true ? { healthWritten: true } : {}),
+    ...peakOf(entry, reading),
+  };
+}
+
+function peakOf(entry, reading) {
+  const systolic = Math.round(entry.peakSystolic);
+  const diastolic = Math.round(entry.peakDiastolic);
+  if (validateReading({ systolic, diastolic, pulse: null }) !== null || systolic < reading.systolic || diastolic < reading.diastolic) return {};
+  return { peakSystolic: systolic, peakDiastolic: diastolic };
+}
+
+function sanitizeDraft(input, nowMs) {
+  if (!isPlainObject(input) || !Number.isFinite(input.updatedAt) || nowMs - input.updatedAt > DRAFT_RETENTION_DAYS * 86400000) return null;
+  if (!PROTOCOLS.includes(input.protocol)) return null;
+  return {
+    protocol: input.protocol,
+    sex: MEASURE_SEXES.includes(input.sex) ? input.sex : null,
+    step: clampInteger(input.step, 0, MAX_DRAFT_STEP, 0),
+    weightKg: optionalNumber(input.weightKg, LIMITS.weightKg, 1),
+    waistSite: pick(input.waistSite, WAIST_SITES, 'navel'),
+    skinfolds: sanitizeSkinfolds(input.skinfolds),
+    girths: sanitizeGirths(input.girths),
+    editingId: null,
+    editingAt: null,
+    updatedAt: input.updatedAt,
+  };
+}
+
+function sanitizeEditDraft(input, nowMs, sessions) {
+  const base = sanitizeDraft(input, nowMs);
+  if (!base || !validId(input.editingId)) return null;
+  const session = sessions.find((item) => item.id === input.editingId);
+  if (!session) return null;
+  return {
+    ...base,
+    editingId: session.id,
+    editingAt: session.at,
+    sex: session.sex,
+    age: session.age,
+    heightCm: session.heightCm,
+  };
+}
+
+function sanitizeReminder(input) {
+  const source = isPlainObject(input) ? input : {};
+  return {
+    enabled: typeof source.enabled === 'boolean' ? source.enabled : DEFAULT_REMINDER.enabled,
+    day: clampInteger(source.day, REMINDER_DAY_LIMITS.min, REMINDER_DAY_LIMITS.max, DEFAULT_REMINDER.day),
+    time: sanitizeTime(source.time, DEFAULT_REMINDER.time),
+    dismissedMonth: isValidMonthKey(source.dismissedMonth) ? source.dismissedMonth : null,
+  };
+}
+
+export function sanitizeMeasurementState(input, now) {
+  const source = isPlainObject(input) ? input : {};
+  const nowMs = now.getTime();
+  const seen = new Set();
+  const sessions = (Array.isArray(source.sessions) ? source.sessions : [])
+    .map((entry, index) => sanitizeSession(entry, index, nowMs))
+    .filter((session) => session && !seen.has(session.id) && seen.add(session.id))
+    .sort((left, right) => left.at - right.at)
+    .slice(-MAX_SESSIONS);
+  const pressureIds = new Set();
+  const pressure = (Array.isArray(source.bloodPressure) ? source.bloodPressure : [])
+    .map((entry, index) => sanitizePressureEntry(entry, index, nowMs))
+    .filter((entry) => entry && !pressureIds.has(entry.id) && pressureIds.add(entry.id));
+  return {
+    sessions,
+    bloodPressure: mergeBloodPressure(pressure, [], MAX_PRESSURE_ENTRIES),
+    ignoredHealthPressure: (Array.isArray(source.ignoredHealthPressure) ? source.ignoredHealthPressure : [])
+      .filter((item) => isPlainObject(item) && Number.isFinite(item.at) && Number.isFinite(item.systolic) && Number.isFinite(item.diastolic))
+      .slice(-MAX_IGNORED_PRESSURE)
+      .map((item) => ({ at: item.at, systolic: item.systolic, diastolic: item.diastolic })),
+    draft: sanitizeDraft(source.draft, nowMs),
+    editDraft: sanitizeEditDraft(source.editDraft, nowMs, sessions),
+    reminder: sanitizeReminder(source.reminder),
+    waistSite: pick(source.waistSite, WAIST_SITES, 'navel'),
+    lastArm: pick(source.lastArm, BP_ARMS, 'left'),
+  };
 }
 
 function sanitizeDay(input) {
@@ -415,6 +582,9 @@ function sanitizeNotifications(input, defaults) {
 
 export function sanitizeState(candidate, defaults, now) {
   if (!isPlainObject(candidate)) return defaults;
+  const measurements = sanitizeMeasurementState(candidate.measurements, now);
+  const sessionIds = new Set(measurements.sessions.map((session) => session.id));
+  const body = sanitizeBody(candidate.body);
   return {
     version: SCHEMA_VERSION,
     onboarded: candidate.onboarded === true,
@@ -424,9 +594,10 @@ export function sanitizeState(candidate, defaults, now) {
     notifications: sanitizeNotifications(candidate.notifications, defaults.notifications),
     sleep: sanitizeSleep(candidate.sleep, now),
     activity: sanitizeActivity(candidate.activity, now),
-    body: sanitizeBody(candidate.body),
+    body: { ...body, fat: body.fat.filter((entry) => !entry.sessionId || sessionIds.has(entry.sessionId)) },
     health: sanitizeHealth(candidate.health),
     energy: sanitizeEnergy(candidate.energy, now),
+    measurements,
     days: sanitizeDays(candidate.days, now),
   };
 }
@@ -438,7 +609,11 @@ export function migrateState(candidate) {
   if (candidate.version === 2) return migrateState({ ...candidate, version: 3, body: { weights: [], fat: [], goalKg: null }, health: { body: false, activity: false, nutrition: false, writeWeight: false }, energy: { days: {} } });
   if (candidate.version === 3) {
     const health = isPlainObject(candidate.health) ? candidate.health : {};
-    return { ...candidate, version: 4, health: { ...health, heart: false, requested: requiredHealthTypes(health, LEGACY_GROUP_TYPES) } };
+    return migrateState({ ...candidate, version: 4, health: { ...health, heart: false, requested: requiredHealthTypes(health, LEGACY_GROUP_TYPES) } });
+  }
+  if (candidate.version === 4) {
+    const health = isPlainObject(candidate.health) ? candidate.health : {};
+    return { ...candidate, version: 5, health: { ...health, writeBodyFat: false, writeBloodPressure: false }, measurements: createDefaultMeasurements() };
   }
   return null;
 }
@@ -495,13 +670,27 @@ export function saveState(storage, state) {
   }
 }
 
+export function clearBackups(storage) {
+  try {
+    const keys = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key && key.startsWith(BACKUP_KEY_PREFIX)) keys.push(key);
+    }
+    for (const key of keys) storage.removeItem(key);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 export function clearState(storage) {
   try {
     storage.removeItem(STORAGE_KEY);
   } catch {
     return false;
   }
-  return true;
+  return clearBackups(storage);
 }
 
 export function resolveNotificationsEnabled(wanted, permission) {

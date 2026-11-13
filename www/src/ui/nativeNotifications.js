@@ -1,5 +1,5 @@
 import { t } from '../i18n/index.js';
-import { buildNotificationPlan } from '../core/notificationPlan.js';
+import { MEASUREMENT_KIND, buildNotificationPlan } from '../core/notificationPlan.js';
 import { formatMl } from './format.js';
 import { nativePlugin } from './platform.js';
 
@@ -148,7 +148,7 @@ export function createNativeNotifications({ store, onDrink, onOpen }) {
       onOpen('water');
       return;
     }
-    if (event && event.actionId === 'tap') onOpen(extra.kind === 'water' ? 'water' : 'today');
+    if (event && event.actionId === 'tap') onOpen(extra.kind === 'water' ? 'water' : extra.kind === MEASUREMENT_KIND ? 'measure' : 'today');
   });
 
   return {

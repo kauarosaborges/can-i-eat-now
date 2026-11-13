@@ -1,4 +1,5 @@
-import { WEIGHT_LIMITS, dedupeMeasurements, isIgnoredHealthWeight, latestWeightKg, mergeWeights } from './body.js';
+import { DEDUPE_WINDOW_MS, WEIGHT_LIMITS, dedupeMeasurements, isIgnoredHealthFat, isIgnoredHealthWeight, latestWeightKg, mergeWeights } from './body.js';
+import { isIgnoredHealthPressure, mergeBloodPressure } from './bloodPressure.js';
 import { addDaysToKey, clampNumber, dateAtMinutes, isValidDateKey, toDateKey } from './time.js';
 
 export const HEALTH_GROUPS = ['body', 'activity', 'nutrition', 'heart'];
@@ -6,8 +7,10 @@ export const HEALTH_GROUP_TYPES = {
   body: ['weight', 'height', 'bodyFat'],
   activity: ['calories', 'basalCalories', 'totalCalories', 'steps', 'exerciseTime', 'workouts', 'distance', 'flightsClimbed'],
   nutrition: ['dietaryEnergyConsumed'],
-  heart: ['restingHeartRate', 'heartRate', 'heartRateVariability', 'respiratoryRate'],
+  heart: ['restingHeartRate', 'heartRate', 'heartRateVariability', 'respiratoryRate', 'bloodPressure'],
 };
+export const HEALTH_WRITE_FLAGS = { writeWeight: 'weight', writeBodyFat: 'bodyFat', writeBloodPressure: 'bloodPressure' };
+export const MAX_HEALTH_PRESSURE = 3000;
 export const LEGACY_GROUP_TYPES = {
   body: ['weight', 'height', 'bodyFat'],
   activity: ['calories', 'basalCalories', 'totalCalories', 'steps', 'exerciseTime', 'workouts'],
@@ -73,6 +76,10 @@ export function requiredHealthTypes(health, groupTypes = HEALTH_GROUP_TYPES) {
   return [...new Set(HEALTH_GROUPS.filter((group) => health && health[group]).flatMap((group) => groupTypes[group] || []))];
 }
 
+export function healthWriteTypes(health) {
+  return Object.entries(HEALTH_WRITE_FLAGS).filter(([flag]) => health && health[flag] === true).map(([, type]) => type);
+}
+
 export function missingHealthTypes(health) {
   const requested = new Set(Array.isArray(health && health.requested) ? health.requested : []);
   return requiredHealthTypes(health).filter((type) => !requested.has(type));
@@ -88,6 +95,7 @@ export function stripHealthGroup(state, group) {
     const body = { ...state.body, weights: state.body.weights.filter((entry) => entry.source !== 'health'), fat: state.body.fat.filter((entry) => entry.source !== 'health'), healthHeightCm: null };
     return withLatestWeight(state, body);
   }
+  const base = group === 'heart' && state.measurements ? { ...state, measurements: { ...state.measurements, bloodPressure: state.measurements.bloodPressure.filter((entry) => entry.source !== 'health') } } : state;
   const fields = Object.keys(DAY_FIELD_GROUPS).filter((field) => DAY_FIELD_GROUPS[field] === group);
   const days = {};
   for (const [key, day] of Object.entries(state.energy.days)) {
@@ -95,7 +103,16 @@ export function stripHealthGroup(state, group) {
     for (const field of fields) next[field] = field === 'workouts' ? [] : null;
     days[key] = next;
   }
-  return { ...state, energy: { days } };
+  return { ...base, energy: { days } };
+}
+
+export function addIgnoredFat(body, entry) {
+  return { ...body, ignoredHealthFat: [...(body.ignoredHealthFat || []), { at: entry.at, pct: entry.pct }].slice(-MAX_IGNORED) };
+}
+
+function healthFat(body, incoming) {
+  const sessionTimes = (body.fat || []).filter((entry) => entry.sessionId).map((entry) => entry.at);
+  return (incoming || []).filter((entry) => !isIgnoredHealthFat(body.ignoredHealthFat, entry) && !sessionTimes.some((at) => Math.abs(at - entry.at) <= DEDUPE_WINDOW_MS));
 }
 
 export function mergeHealthSync(state, snapshot) {
@@ -106,10 +123,15 @@ export function mergeHealthSync(state, snapshot) {
     const body = {
       ...state.body,
       weights: mergeWeights(state.body.weights, weights),
-      fat: dedupeMeasurements([...state.body.fat, ...snapshot.body.fat], 'pct', 0.1),
+      fat: dedupeMeasurements([...state.body.fat, ...healthFat(state.body, snapshot.body.fat)], 'pct', 0.1),
       healthHeightCm: Number.isFinite(snapshot.body.heightCm) ? snapshot.body.heightCm : state.body.healthHeightCm,
     };
     next = withLatestWeight(next, body);
+  }
+  if (groups.heart && Array.isArray(snapshot.bloodPressure) && next.measurements) {
+    const measurements = next.measurements;
+    const incoming = snapshot.bloodPressure.filter((entry) => !isIgnoredHealthPressure(measurements.ignoredHealthPressure, entry));
+    next = { ...next, measurements: { ...measurements, bloodPressure: mergeBloodPressure(measurements.bloodPressure, incoming, MAX_HEALTH_PRESSURE) } };
   }
   const days = { ...next.energy.days };
   for (const [key, incoming] of Object.entries(snapshot.days || {})) {

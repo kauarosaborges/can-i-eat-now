@@ -1,5 +1,5 @@
 import { t } from '../i18n/index.js';
-import { STORAGE_KEY, clearState, createDefaultState, inspectState, loadStateWithReport, sanitizeState, saveState } from '../core/storage.js';
+import { STORAGE_KEY, clearBackups, clearState, createDefaultState, inspectState, loadStateWithReport, sanitizeState, saveState } from '../core/storage.js';
 import { emptyDayLog, cloneDayLog } from '../core/meals.js';
 import { showToast } from './feedback.js';
 
@@ -82,6 +82,9 @@ export function createStore() {
       if (storage) clearState(storage);
       state = defaults();
       notify('reset');
+    },
+    clearBackups() {
+      return storage ? clearBackups(storage) : false;
     },
     snapshot() {
       return JSON.parse(JSON.stringify(state));

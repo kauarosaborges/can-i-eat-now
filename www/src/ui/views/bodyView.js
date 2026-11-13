@@ -5,10 +5,11 @@ import { LIMITS } from '../../core/storage.js';
 import { dailyMetric } from '../../core/summary.js';
 import { MS_PER_HOUR, addDaysToKey, clampNumber, dateAtMinutes, toDateKey, weekdayOfKey } from '../../core/time.js';
 import { createBarChart } from '../components/barChart.js';
+import { measuresCard } from '../components/measureParts.js';
 import { createBalanceBars, createStackedBars, createWeightChart } from '../components/charts.js';
 import { clear, h, icon, pressable, setText } from '../dom.js';
 import { confirmDialog, openOverlay, showToast } from '../feedback.js';
-import { field, numberInput, onPickerCommit, segmented } from '../forms.js';
+import { decimalInput, field, numberInput, onPickerCommit, parseDecimal, segmented } from '../forms.js';
 import { formatDateShort, formatDayShort, formatKcal, formatKg, formatKm, formatNumber, formatTimestamp } from '../format.js';
 
 const DAY_MS = 24 * MS_PER_HOUR;
@@ -23,31 +24,11 @@ const METRICS = [
   { id: 'respiratory', field: 'respiratory', unit: 'rpm', format: (value) => formatNumber(value, 1) },
 ];
 
-function parseKg(text) {
-  const value = Number.parseFloat(String(text).replace(',', '.'));
-  return Number.isFinite(value) ? value : NaN;
-}
-
-function decimalInput(value, placeholder, onCommit) {
-  const input = h('input', { class: 'input', type: 'text', inputmode: 'decimal', value: value === null || value === undefined ? '' : formatNumber(value, 1), placeholder });
-  input.addEventListener('change', () => {
-    const text = input.value.trim();
-    if (text === '') {
-      onCommit(null);
-      return;
-    }
-    const parsed = parseKg(text);
-    if (Number.isFinite(parsed)) onCommit(parsed);
-    else input.value = value === null || value === undefined ? '' : formatNumber(value, 1);
-  });
-  return input;
-}
-
 function signedKcal(value) {
   return value > 0 ? t('body.plusKcal', { value: formatNumber(Math.round(value)) }) : formatKcal(value);
 }
 
-export function createBodyView({ store, bodyActions }) {
+export function createBodyView({ store, bodyActions, measureActions }) {
   const content = h('div', { class: 'body-content' });
   const element = h(
     'section',
@@ -75,19 +56,19 @@ export function createBodyView({ store, bodyActions }) {
     const input = h('input', { class: 'input weight-input', type: 'text', inputmode: 'decimal', value: formatNumber(pendingKg, 1), 'aria-label': t('body.weightInput') });
     const error = h('p', { class: 'field-error', role: 'alert' });
     const stepBy = (delta) => {
-      const current = parseKg(input.value);
+      const current = parseDecimal(input.value);
       pendingKg = Math.round(clampNumber((Number.isFinite(current) ? current : latest) + delta, WEIGHT_LIMITS.min, WEIGHT_LIMITS.max, latest) * 10) / 10;
       input.value = formatNumber(pendingKg, 1);
     };
     input.addEventListener('change', () => {
-      const value = parseKg(input.value);
+      const value = parseDecimal(input.value);
       if (Number.isFinite(value)) pendingKg = value;
     });
     let busy = false;
     const submit = async (event) => {
       if (busy) return;
       const button = event.currentTarget;
-      const value = parseKg(input.value);
+      const value = parseDecimal(input.value);
       if (!Number.isFinite(value) || value < WEIGHT_LIMITS.min || value > WEIGHT_LIMITS.max) {
         setText(error, t('body.weightInvalid', { min: WEIGHT_LIMITS.min, max: WEIGHT_LIMITS.max }));
         return;
@@ -356,7 +337,7 @@ export function createBodyView({ store, bodyActions }) {
               class: 'button button-primary',
               text: t('body.save'),
               onClick: () => {
-                const value = parseKg(input.value);
+                const value = parseDecimal(input.value);
                 if (!Number.isFinite(value) || value < WEIGHT_LIMITS.min || value > WEIGHT_LIMITS.max) {
                   setText(error, t('body.weightInvalid', { min: WEIGHT_LIMITS.min, max: WEIGHT_LIMITS.max }));
                   return;
@@ -428,6 +409,7 @@ export function createBodyView({ store, bodyActions }) {
     content.append(
       ...[
         weightCard(state, now, projection),
+        measuresCard({ store, measureActions, now }),
         forecastCard(state, now),
         trendCard(state, now, projection),
         goalCard(state, now, projection),

@@ -2,12 +2,14 @@ import { MODIFIED_MEAL_ID, absoluteWindows, classifyDay, dayContext, effectiveWi
 import { computeDailyGoal, hydrationDayContext, totalWaterMl } from './hydration.js';
 import { actualWakeMinute, isAsleepAt, nextWakeAfter, waterScheduleFor } from './sleep.js';
 import { hasManualTime, mealsForDay, scheduledMinutes } from './meals.js';
+import { reminderNotificationAt } from './measurementReminder.js';
 import { MINUTES_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, addDaysToKey, dateAtMinutes, toDateKey } from './time.js';
 
 export const NOTIFICATION_KINDS = ['water', 'mealAllowed', 'windowOpen', 'windowClosing'];
 export const MAX_PENDING_NOTIFICATIONS = 60;
 export const DEFAULT_HORIZON_HOURS = 96;
 export const WINDOW_CLOSING_LEAD_MINUTES = 30;
+export const MEASUREMENT_KIND = 'measurement';
 
 export function stableNotificationId(text) {
   let hash = 0x811c9dc5;
@@ -148,7 +150,21 @@ export function buildNotificationPlan(state, now, horizonHours = DEFAULT_HORIZON
       collected.set(item.id, item);
     }
   }
-  return [...collected.values()]
-    .sort((left, right) => left.at.getTime() - right.at.getTime() || left.id - right.id)
-    .slice(0, MAX_PENDING_NOTIFICATIONS);
+  const byTime = (left, right) => left.at.getTime() - right.at.getTime() || left.id - right.id;
+  const measurement = measurementItem(state, now);
+  const others = [...collected.values()].sort(byTime).slice(0, MAX_PENDING_NOTIFICATIONS - (measurement ? 1 : 0));
+  return (measurement ? [...others, measurement] : others).sort(byTime);
+}
+
+export function measurementItem(state, now) {
+  const at = reminderNotificationAt(state.measurements, now);
+  if (!at || at.getTime() <= now.getTime()) return null;
+  return {
+    id: stableNotificationId(`measurement:${at.getTime()}`),
+    at,
+    kind: MEASUREMENT_KIND,
+    titleKey: 'notificationPlan.measureTitle',
+    bodyKey: 'notificationPlan.measureBody',
+    params: {},
+  };
 }

@@ -100,4 +100,7 @@ const ICONS = {
   chevronRight: ['M9 6l6 6l-6 6'],
   chevronLeft: ['M15 6l-6 6l6 6'],
   pencil: ['M4 20h4L19 9l-4-4L4 16z', 'M13.5 6.5l4 4'],
+  ruler: ['M3 16L16 3l5 5L8 21z', 'M7 12l2 2', 'M10 9l2 2', 'M13 6l2 2'],
+  download: ['M12 4v11', 'M7 10l5 5l5-5', 'M5 20h14'],
+  book: ['M5 4h12a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z', 'M5 18a2 2 0 0 1 2-2h12', 'M9 8h6'],
 };

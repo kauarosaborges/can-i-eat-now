@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v11';
+const CACHE_VERSION = 'v13';
 const CACHE_NAME = `can-i-eat-now-${CACHE_VERSION}`;
 
 const PRECACHE = [
@@ -19,6 +19,12 @@ const PRECACHE = [
   'src/i18n/pt-BR.js',
   'src/core/time.js',
   'src/core/body.js',
+  'src/core/bloodPressure.js',
+  'src/core/bodyComposition.js',
+  'src/core/bodyReferences.js',
+  'src/core/csv.js',
+  'src/core/measurementReminder.js',
+  'src/core/measurementReport.js',
   'src/core/dayRepair.js',
   'src/core/energy.js',
   'src/core/healthMerge.js',
@@ -35,6 +41,8 @@ const PRECACHE = [
   'src/core/verdict.js',
   'src/ui/actions.js',
   'src/ui/bodyActions.js',
+  'src/ui/exportFile.js',
+  'src/ui/measureActions.js',
   'src/ui/animation.js',
   'src/ui/dom.js',
   'src/ui/feedback.js',
@@ -47,6 +55,9 @@ const PRECACHE = [
   'src/ui/sleepActions.js',
   'src/ui/store.js',
   'src/ui/components/barChart.js',
+  'src/ui/components/bodySilhouette.js',
+  'src/ui/components/measureParts.js',
+  'src/ui/components/subpageHeader.js',
   'src/ui/components/charts.js',
   'src/ui/components/eatSheet.js',
   'src/ui/components/fastRing.js',
@@ -56,7 +67,11 @@ const PRECACHE = [
   'src/ui/components/sleepEntrySheet.js',
   'src/ui/components/summaryGrid.js',
   'src/ui/components/waveVessel.js',
+  'src/ui/views/guidesView.js',
   'src/ui/views/historyView.js',
+  'src/ui/views/measureView.js',
+  'src/ui/views/pressureView.js',
+  'src/ui/views/reportView.js',
   'src/ui/views/bodyView.js',
   'src/ui/views/onboarding.js',
   'src/ui/views/settingsView.js',

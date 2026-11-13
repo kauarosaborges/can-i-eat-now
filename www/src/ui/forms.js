@@ -6,7 +6,7 @@ import { LIMITS, SEXES, createMealId, resolveNotificationsEnabled } from '../cor
 import { clampNumber, isValidDateKey, minutesToTime, sanitizeTime, timeToMinutes, toDateKey } from '../core/time.js';
 import { clear, h, icon, pressable, setText } from './dom.js';
 import { showToast } from './feedback.js';
-import { formatMl } from './format.js';
+import { formatMl, formatNumber } from './format.js';
 import { NOTIFICATION_KINDS } from '../core/notificationPlan.js';
 import { PERMISSION_EVENT } from './nativeNotifications.js';
 import { getNativeBackend, permissionState, requestPermission, shouldShowIosHint } from './notifications.js';
@@ -49,6 +49,26 @@ export function numberInput({ value, limits, step = 1, onCommit }) {
     input.value = String(rounded);
     input.dataset.previous = String(rounded);
     onCommit(rounded);
+  });
+  return input;
+}
+
+export function parseDecimal(text) {
+  const value = Number.parseFloat(String(text).trim().replace(',', '.'));
+  return Number.isFinite(value) ? value : NaN;
+}
+
+export function decimalInput(value, placeholder, onCommit) {
+  const input = h('input', { class: 'input', type: 'text', inputmode: 'decimal', value: value === null || value === undefined ? '' : formatNumber(value, 1), placeholder });
+  input.addEventListener('change', () => {
+    const text = input.value.trim();
+    if (text === '') {
+      onCommit(null);
+      return;
+    }
+    const parsed = parseDecimal(text);
+    if (Number.isFinite(parsed)) onCommit(parsed);
+    else input.value = value === null || value === undefined ? '' : formatNumber(value, 1);
   });
   return input;
 }

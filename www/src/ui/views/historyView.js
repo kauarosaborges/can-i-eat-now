@@ -4,6 +4,7 @@ import { buildHistory } from '../../core/history.js';
 import { computeDailyGoal } from '../../core/hydration.js';
 import { toDateKey, weekdayOfKey } from '../../core/time.js';
 import { createBarChart } from '../components/barChart.js';
+import { subpageHeader } from '../components/subpageHeader.js';
 import { clear, h, icon } from '../dom.js';
 import { formatDayShort, formatHours, formatMl } from '../format.js';
 
@@ -18,27 +19,7 @@ export function createHistoryView({ store, goBack }) {
   const element = h(
     'section',
     { class: 'view view-history' },
-    h(
-      'header',
-      { class: 'view-header' },
-      h(
-        'a',
-        {
-          class: 'back-link',
-          href: '#/today',
-          'aria-label': t('history.backLabel'),
-          onClick: (event) => {
-            if (!goBack) return;
-            event.preventDefault();
-            goBack();
-          },
-        },
-        icon('chevronLeft'),
-        h('span', { text: t('history.back') }),
-      ),
-      h('p', { class: 'view-eyebrow', text: t('history.subtitle') }),
-      h('h1', { class: 'view-title', text: t('history.title') }),
-    ),
+    subpageHeader({ title: t('history.title'), eyebrow: t('history.subtitle'), backHref: '#/today', backText: t('history.back'), backLabel: t('history.backLabel'), goBack }),
     content,
   );
   let renderedKey = '';

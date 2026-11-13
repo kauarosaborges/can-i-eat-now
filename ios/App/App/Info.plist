@@ -23,9 +23,9 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>O Can I Eat Now? lê do app Saúde só os grupos que você ligar: sono e fases do sono, peso, altura, gordura corporal, calorias gastas, passos, distância, andares, exercícios, frequência cardíaca, variabilidade da frequência cardíaca, respiração e calorias consumidas. Usamos esses dados para ajustar lembretes, mostrar gráficos e prever seu peso. Eles ficam no iPhone e não são enviados para nenhum servidor.</string>
+	<string>O Can I Eat Now? lê do app Saúde só os grupos que você ligar: sono e fases do sono, peso, altura, gordura corporal, calorias gastas, passos, distância, andares, exercícios, frequência cardíaca, variabilidade da frequência cardíaca, respiração, pressão arterial e calorias consumidas. Usamos esses dados para ajustar lembretes, mostrar gráficos e prever seu peso. Eles ficam no iPhone e não são enviados para nenhum servidor.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Se você ligar essa opção, o Can I Eat Now? salva no app Saúde o peso que você registrar aqui. Nenhum outro dado é gravado.</string>
+	<string>Só se você ligar cada opção, o Can I Eat Now? salva no app Saúde o peso, o percentual de gordura corporal e a pressão arterial que você registrar aqui. Nenhum outro dado é gravado e nada sai do iPhone.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>

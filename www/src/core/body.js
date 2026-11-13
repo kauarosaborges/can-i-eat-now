@@ -15,10 +15,15 @@ export function roundKg(value) {
   return Math.round(value * 10) / 10;
 }
 
+function measurementRank(entry) {
+  if (entry.source !== 'manual') return 2;
+  return entry.sessionId ? 0 : 1;
+}
+
 function compareMeasurements(left, right) {
   if (left.at !== right.at) return left.at - right.at;
-  const leftRank = left.source === 'manual' ? 0 : 1;
-  const rightRank = right.source === 'manual' ? 0 : 1;
+  const leftRank = measurementRank(left);
+  const rightRank = measurementRank(right);
   if (leftRank !== rightRank) return leftRank - rightRank;
   return String(left.id || '').localeCompare(String(right.id || ''));
 }
@@ -36,11 +41,15 @@ export function dedupeMeasurements(entries, valueKey, tolerance) {
     }
     if (duplicateIndex === -1) {
       kept.push({ ...entry });
-    } else if (kept[duplicateIndex].source !== 'manual' && entry.source === 'manual') {
+    } else if (measurementRank(entry) < measurementRank(kept[duplicateIndex])) {
       kept[duplicateIndex] = { ...entry };
     }
   }
   return kept;
+}
+
+export function isIgnoredHealthFat(ignored, entry) {
+  return (ignored || []).some((item) => Math.abs(item.at - entry.at) <= DEDUPE_WINDOW_MS && Math.abs(item.pct - entry.pct) <= 0.1);
 }
 
 export function isIgnoredHealthWeight(ignored, entry) {

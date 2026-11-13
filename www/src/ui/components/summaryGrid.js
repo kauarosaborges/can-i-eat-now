@@ -91,6 +91,44 @@ function weightDescriptor(summary, todayKey) {
   };
 }
 
+function pressureDescriptor(summary, todayKey) {
+  const pressure = summary.pressure;
+  if (!pressure) return null;
+  return {
+    id: 'pressure',
+    sig: [pressure.systolic, pressure.diastolic, pressure.at],
+    build: () =>
+      card({
+        tone: 'heart',
+        iconName: 'heart',
+        title: t('summary.pressureTitle'),
+        value: t('pressure.value', { systolic: pressure.systolic, diastolic: pressure.diastolic }),
+        unit: t('measure.units.mmHg'),
+        subtitle: [t(`pressure.categories.${pressure.category}`), formatRelativeDay(toDateKey(new Date(pressure.at)), todayKey)].join(t('common.dot')),
+        href: '#/pressure',
+      }),
+  };
+}
+
+function bodyFatDescriptor(summary, todayKey) {
+  const fat = summary.bodyFat;
+  if (!fat) return null;
+  return {
+    id: 'bodyFat',
+    sig: [fat.pct, fat.at, fat.status],
+    build: () =>
+      card({
+        tone: 'weight',
+        iconName: 'ruler',
+        title: t('summary.bodyFatTitle'),
+        value: formatNumber(fat.pct, 1),
+        unit: t('measure.units.pct'),
+        subtitle: [fat.status ? t(`measure.status.${fat.status}`) : null, formatRelativeDay(toDateKey(new Date(fat.at)), todayKey)].filter(Boolean).join(t('common.dot')),
+        href: '#/report',
+      }),
+  };
+}
+
 function metricDescriptor(id, metric, options, todayKey) {
   if (!metric) return null;
   return {
@@ -264,6 +302,8 @@ export function createSummaryGrid() {
       metricDescriptor('exercise', summary.exercise, { tone: 'energy', iconName: 'dumbbell', title: t('summary.exerciseTitle'), unit: t('summary.units.min'), format: (value) => formatNumber(value) }, todayKey),
       distanceDescriptor(summary, todayKey),
       hrvDescriptor(summary, todayKey),
+      pressureDescriptor(summary, todayKey),
+      bodyFatDescriptor(summary, todayKey),
     ].filter(Boolean);
     const layout = summaryLayout(cards, expanded);
     const statuses = ['activity', 'heart']

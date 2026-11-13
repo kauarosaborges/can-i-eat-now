@@ -88,3 +88,8 @@ export function formatGoal(minutes) {
   if (rounded > 0 && rounded % 60 === 0) return t('common.hoursOnly', { h: rounded / 60 });
   return formatMinutes(rounded);
 }
+
+export function formatList(items) {
+  if (typeof Intl !== 'undefined' && typeof Intl.ListFormat === 'function') return new Intl.ListFormat(LOCALE, { style: 'long', type: 'conjunction' }).format(items);
+  return items.join(', ');
+}

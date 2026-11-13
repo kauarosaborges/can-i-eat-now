@@ -7,10 +7,10 @@ export const REPORT_ROWS = [
   { id: 'fatJp3', unit: 'pct', decimals: 1, reference: 'fat', pick: (result) => result.jp3 },
   { id: 'fatDiff', unit: 'points', decimals: 1 },
   { id: 'fatNavy', unit: 'pct', decimals: 1, reference: 'fat', pick: (result) => result.navy },
-  { id: 'fatMass', unit: 'kg', decimals: 1, pick: (result) => result.fatMassKg },
-  { id: 'leanMass', unit: 'kg', decimals: 1, pick: (result) => result.leanMassKg },
+  { id: 'fatMass', unit: 'kg', decimals: 1, byMethod: true, pick: (result) => result.fatMassKg },
+  { id: 'leanMass', unit: 'kg', decimals: 1, byMethod: true, pick: (result) => result.leanMassKg },
   { id: 'muscle', unit: 'kg', decimals: 1, pick: (result) => result.muscleKg },
-  { id: 'ffmi', unit: 'index', decimals: 1, reference: 'ffmi', pick: (result) => result.ffmi },
+  { id: 'ffmi', unit: 'index', decimals: 1, reference: 'ffmi', byMethod: true, pick: (result) => result.ffmi },
   { id: 'bmi', unit: 'index', decimals: 1, reference: 'bmi', pick: (result) => result.bmi },
   { id: 'weight', unit: 'kg', decimals: 1, pick: (result) => result.weightKg },
   { id: 'waist', unit: 'cm', decimals: 1, reference: 'waist', pick: (result) => result.girths.waist },
@@ -51,8 +51,14 @@ export function primarySession(list) {
 }
 
 function latestOfProtocol(list, protocol) {
-  const matching = list.filter((session) => session.protocol === protocol);
+  const matching = list.filter((session) => session.protocol === protocol && finite(sessionResults(session)[protocol]) !== null);
   return matching.length ? matching[matching.length - 1] : null;
+}
+
+export function fatMethod(result) {
+  if (!result.fatSource) return null;
+  if (result.fatSource === 'navy' && result.skippedSkinfolds && result.skippedSkinfolds.length > 0) return 'navySkipped';
+  return result.fatSource;
 }
 
 export function monthlySessionValues(sessions) {
@@ -68,13 +74,16 @@ export function monthlySessionValues(sessions) {
     const result = sessionResults(primary);
     const context = (session) => ({ sex: session.sex, age: session.age, sessionId: session.id });
     const values = {};
+    const method = fatMethod(result);
+    if (method) values.method = method;
     for (const row of REPORT_ROWS) {
       if (!row.pick || row.id === 'fatJp7' || row.id === 'fatJp3') continue;
       const value = finite(row.pick(result));
-      if (value !== null) values[row.id] = { value, context: context(primary) };
+      if (value !== null) values[row.id] = { value, context: context(primary), ...(row.byMethod ? { source: result.fatSource } : {}) };
     }
     for (const [rowId, protocol] of [['fatJp7', 'jp7'], ['fatJp3', 'jp3']]) {
-      const session = primary.protocol === protocol ? primary : latestOfProtocol(list, protocol);
+      const ownValue = primary.protocol === protocol ? finite(result[protocol]) : null;
+      const session = ownValue !== null ? primary : latestOfProtocol(list, protocol);
       const value = session ? finite(sessionResults(session)[protocol]) : null;
       if (value !== null) values[rowId] = { value, context: context(session) };
     }
@@ -113,14 +122,15 @@ export function buildMeasurementReport({ sessions, bloodPressure, sex, age }, mo
         return { month, value: pressure ? finite(pressure[row.bp]) : null, context: { sex, age } };
       }
       const item = (sessionMonths.get(month) || {})[row.id];
-      return { month, value: item ? item.value : null, context: item ? item.context : { sex, age } };
+      return { month, value: item ? item.value : null, context: item ? item.context : { sex, age }, source: item ? item.source || null : null };
     });
     let previous = null;
     const cells = series.map((item) => {
-      const delta = item.value !== null && previous !== null ? Math.round((item.value - previous.value) * 10 ** row.decimals) / 10 ** row.decimals : null;
-      const deltaFrom = delta !== null ? previous.month : null;
+      const methodChanged = Boolean(row.byMethod && item.value !== null && previous !== null && item.source !== previous.source);
+      const delta = item.value !== null && previous !== null && !methodChanged ? Math.round((item.value - previous.value) * 10 ** row.decimals) / 10 ** row.decimals : null;
+      const deltaFrom = delta !== null || methodChanged ? previous.month : null;
       if (item.value !== null) previous = item;
-      return { month: item.month, value: item.value, delta, deltaFrom, context: item.context, status: row.reference ? classify(row.reference, item.value, item.context) : null };
+      return { month: item.month, value: item.value, delta, deltaFrom, methodChanged, context: item.context, status: row.reference ? classify(row.reference, item.value, item.context) : null };
     });
     const visible = cells.filter((cell) => months.includes(cell.month));
     const filled = visible.filter((cell) => cell.value !== null);
@@ -135,7 +145,8 @@ export function buildMeasurementReport({ sessions, bloodPressure, sex, age }, mo
       cells: visible,
     });
   }
-  return { months, rows };
+  const methods = months.map((month) => (sessionMonths.get(month) || {}).method || null);
+  return { months, rows, methods };
 }
 
 export function latestSessionValue(report, rowId) {

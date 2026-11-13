@@ -5,7 +5,7 @@ import { toCsv } from '../../core/csv.js';
 import { buildMeasurementReport, previousMonthKey } from '../../core/measurementReport.js';
 import { toDateKey } from '../../core/time.js';
 import { createWeightChart } from '../components/charts.js';
-import { formatDelta, formatMeasure, referenceText, statusDirection, statusPill, statusText } from '../components/measureParts.js';
+import { fallbackNote, formatDelta, formatMeasure, referenceText, statusDirection, statusPill, statusText } from '../components/measureParts.js';
 import { subpageHeader } from '../components/subpageHeader.js';
 import { clear, h, icon, pressable } from '../dom.js';
 import { confirmDialog, openOverlay } from '../feedback.js';
@@ -60,6 +60,7 @@ export function reportContext(state, now) {
 }
 
 export function deltaText(cell, row) {
+  if (cell.methodChanged) return t('report.methodChanged');
   if (cell.delta === null) return '';
   const text = formatDelta(cell.delta, row.unit, row.decimals);
   if (!cell.deltaFrom || cell.deltaFrom === previousMonthKey(cell.month)) return text;
@@ -75,7 +76,9 @@ export function reportCsv(report) {
     row.reference ? t(`measure.sources.${row.reference.source}`) : '',
     ...row.cells.map((cell) => (cell.value === null ? '' : { number: cell.value, decimals: row.decimals })),
   ]);
-  return toCsv([header, ...rows]);
+  const methods = report.methods || [];
+  const methodRow = methods.some(Boolean) ? [[t('report.csv.method'), '', '', '', ...methods.map((method) => (method ? t(`report.csv.methods.${method}`) : ''))]] : [];
+  return toCsv([header, ...methodRow, ...rows]);
 }
 
 function firstRow(report, ids) {
@@ -113,7 +116,7 @@ export function createReportView({ store, measureActions, goBack }) {
             h('span', { class: 'report-summary-label', text: t(`report.charts.${id}`) }),
             h('span', { class: 'report-summary-value', text: formatMeasure(cell.value, row.unit, row.decimals) }),
             cell.status ? statusPill(cell.status, direction) : null,
-            cell.delta !== null ? h('span', { class: 'report-delta', text: deltaText(cell, row) }) : null,
+            cell.delta !== null || cell.methodChanged ? h('span', { class: 'report-delta', text: deltaText(cell, row) }) : null,
           );
         }),
       ),
@@ -131,7 +134,7 @@ export function createReportView({ store, measureActions, goBack }) {
         ? h('span', { class: 'report-value is-empty', 'aria-label': t('report.noMeasure'), text: t('measure.noValue') })
         : h('span', { class: 'report-value', text: formatMeasure(cell.value, row.unit, row.decimals) }),
       status ? h('span', { class: 'report-status', text: status }) : null,
-      cell.delta !== null ? h('span', { class: 'report-delta', text: deltaText(cell, row) }) : null,
+      cell.delta !== null || cell.methodChanged ? h('span', { class: 'report-delta', text: deltaText(cell, row) }) : null,
     );
   }
 
@@ -270,6 +273,7 @@ export function createReportView({ store, measureActions, goBack }) {
 
   function openSession(session) {
     const result = sessionResults(session);
+    const fallback = fallbackNote(result);
     let overlay = null;
     const lines = [
       [t(`measure.results.fatBy.${result.fatSource || 'navy'}`), formatMeasure(result.fatPct, 'pct')],
@@ -287,6 +291,7 @@ export function createReportView({ store, measureActions, goBack }) {
           'div',
           { class: 'sheet-body' },
           h('p', { class: 'field-hint', text: t(`measure.protocols.${session.protocol}`) }),
+          fallback ? h('p', { class: 'field-note' }, icon('info'), h('span', { text: fallback })) : null,
           h('ul', { class: 'result-list' }, lines.map(([label, value]) => h('li', { class: 'result-row' }, h('span', { class: 'result-label', text: label }), h('span', { class: 'result-value', text: value })))),
           pressable(
             h(

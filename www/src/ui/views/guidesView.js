@@ -1,13 +1,15 @@
 import { t } from '../../i18n/index.js';
 import { GIRTH_SITES, SKINFOLD_SITES } from '../../core/bodyComposition.js';
 import { siteGuide } from '../components/measureParts.js';
+import { createCaliperSteps, createPinchDiagram } from '../components/pinchDiagram.js';
 import { subpageHeader } from '../components/subpageHeader.js';
 import { clear, h, icon, pressable } from '../dom.js';
 import { segmented } from '../forms.js';
 
 const TOOLS = ['caliper', 'tape', 'monitor'];
-const STEP_COUNT = { caliper: 6, tape: 5, monitor: 5 };
-const MISTAKE_COUNT = { caliper: 5, tape: 4, monitor: 5 };
+const STEP_COUNT = { caliper: 7, tape: 5, monitor: 5 };
+const MISTAKE_COUNT = { caliper: 6, tape: 4, monitor: 5 };
+const PINCH_COUNT = 4;
 const SITES = { caliper: { kind: 'skinfold', sites: SKINFOLD_SITES }, tape: { kind: 'girth', sites: GIRTH_SITES } };
 
 function numbered(prefix, count) {
@@ -34,7 +36,7 @@ export function createGuidesView({ store, goBack }) {
         config.sites.map((site) => {
           const id = `site-${config.kind}-${site}`;
           const expanded = openSite === id;
-          const panel = h('div', { class: 'site-panel', id: `${id}-panel`, hidden: !expanded }, siteGuide(config.kind, site, { sex: store.state.profile.sex }));
+          const panel = h('div', { class: 'site-panel', id: `${id}-panel`, hidden: !expanded }, siteGuide(config.kind, site, { sex: store.state.profile.sex }), config.kind === 'skinfold' ? createPinchDiagram(site) : null);
           const button = pressable(
             h(
               'button',
@@ -64,7 +66,16 @@ export function createGuidesView({ store, goBack }) {
     clear(toolHolder);
     toolHolder.append(
       ...[
-        h('section', { class: 'card stack' }, h('h2', { class: 'card-title', text: t(`guides.${tool}.howTitle`) }), h('p', { class: 'field-hint', text: t(`guides.${tool}.intro`) }), h('ol', { class: 'check-list is-numbered' }, numbered(`guides.${tool}.steps`, STEP_COUNT[tool]).map((text) => h('li', { text })))),
+        h(
+          'section',
+          { class: 'card stack' },
+          h('h2', { class: 'card-title', text: t(`guides.${tool}.howTitle`) }),
+          h('p', { class: 'field-hint', text: t(`guides.${tool}.intro`) }),
+          tool === 'caliper' ? createCaliperSteps() : null,
+          h('ol', { class: 'check-list is-numbered' }, numbered(`guides.${tool}.steps`, STEP_COUNT[tool]).map((text) => h('li', { text }))),
+        ),
+        tool === 'caliper' ? h('section', { class: 'card stack' }, h('h2', { class: 'card-title', text: t('guides.caliper.pinchTitle') }), h('ol', { class: 'check-list is-numbered' }, numbered('guides.caliper.pinch', PINCH_COUNT).map((text) => h('li', { text })))) : null,
+        tool === 'caliper' ? h('section', { class: 'card stack' }, h('h2', { class: 'card-title', text: t('guides.caliper.foldTitle') }), h('div', { class: 'pinch-pair' }, createPinchDiagram('abdomen', { named: true }), createPinchDiagram('chest', { named: true }))) : null,
         h('section', { class: 'card stack' }, h('h2', { class: 'card-title', text: t('guides.mistakesTitle') }), h('ul', { class: 'check-list is-warning' }, numbered(`guides.${tool}.mistakes`, MISTAKE_COUNT[tool]).map((text) => h('li', { text })))),
         tool === 'caliper' ? h('section', { class: 'card stack' }, h('h2', { class: 'card-title', text: t('guides.whatTitle') }), h('ul', { class: 'check-list' }, ['jp3male', 'jp3female', 'jp7', 'muscle'].map((key) => h('li', { text: t(`guides.what.${key}`) })))) : null,
         siteList(),

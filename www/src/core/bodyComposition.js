@@ -8,6 +8,7 @@ export const GIRTH_SITES = ['neck', 'chest', 'waist', 'hip', 'armRelaxed', 'armF
 export const SKINFOLD_LIMITS = { min: 2, max: 80 };
 export const SKINFOLD_TOLERANCE_MM = 2;
 export const MAX_READINGS = 3;
+export const SKINFOLD_SPREAD_HINT_MM = 4;
 export const GIRTH_LIMITS = {
   neck: { min: 20, max: 70 },
   chest: { min: 50, max: 200 },
@@ -83,6 +84,33 @@ export function siteValue(readings) {
   const high = tenths(sorted[2]) - tenths(sorted[1]);
   if (low === high) return sorted[1];
   return low < high ? (sorted[0] + sorted[1]) / 2 : (sorted[1] + sorted[2]) / 2;
+}
+
+export function readingSpread(readings) {
+  const valid = (readings || []).filter(isValidSkinfold).slice(0, MAX_READINGS);
+  if (valid.length < 2) return null;
+  return (tenths(Math.max(...valid)) - tenths(Math.min(...valid))) / 10;
+}
+
+export function inconsistentReadings(readings) {
+  const valid = (readings || []).filter(isValidSkinfold).slice(0, MAX_READINGS);
+  if (valid.length < MAX_READINGS) return false;
+  return readingSpread(valid) > SKINFOLD_SPREAD_HINT_MM;
+}
+
+export function navyGirthSites(sex) {
+  return sex === 'female' ? ['neck', 'waist', 'hip'] : ['neck', 'waist'];
+}
+
+export function cleanSkippedSites(input, allowed = SKINFOLD_SITES) {
+  if (!Array.isArray(input)) return [];
+  return allowed.filter((site) => input.includes(site));
+}
+
+export function skippedRequiredSites(session) {
+  if (!session || session.protocol === 'tape') return [];
+  const skinfolds = session.skinfolds || {};
+  return cleanSkippedSites(session.skippedSkinfolds, protocolSites(session.protocol, session.sex)).filter((site) => siteValue(skinfolds[site]) === null);
 }
 
 export function isSiteComplete(readings) {
@@ -167,6 +195,12 @@ export function ratio(numerator, denominator, decimals = 2) {
   return round(numerator / denominator, decimals);
 }
 
+export function navyBlockerFor(heightCm, missingGirths) {
+  if (!Number.isFinite(heightCm) || heightCm <= 0) return 'height';
+  if (missingGirths.length > 0) return 'girths';
+  return 'range';
+}
+
 export function sessionResults(session) {
   const sex = session.sex;
   const skinfolds = session.skinfolds || {};
@@ -177,6 +211,9 @@ export function sessionResults(session) {
   const navy = navyBodyFat({ sex, heightCm: height, neckCm: girths.neck, waistCm: girths.waist, hipCm: girths.hip });
   const fatPct = skinfold ? skinfold.pct : navy;
   const fatSource = skinfold ? session.protocol : navy !== null ? 'navy' : null;
+  const skippedSkinfolds = skinfold ? [] : skippedRequiredSites(session);
+  const missingNavyGirths = skippedSkinfolds.length > 0 && navy === null ? navyGirthSites(sex).filter((site) => !Number.isFinite(girths[site])) : [];
+  const navyBlocker = skippedSkinfolds.length > 0 && navy === null ? navyBlockerFor(height, missingNavyGirths) : null;
   const fatMassKg = weight !== null && fatPct !== null ? round((weight * fatPct) / 100, 1) : null;
   const leanMassKg = weight !== null && fatMassKg !== null ? round(weight - fatMassKg, 1) : null;
   const muscleKg = leeMuscleMass({
@@ -198,6 +235,9 @@ export function sessionResults(session) {
     navy,
     fatPct,
     fatSource,
+    skippedSkinfolds,
+    missingNavyGirths,
+    navyBlocker,
     fatMassKg,
     leanMassKg,
     muscleKg,

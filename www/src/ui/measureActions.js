@@ -1,6 +1,6 @@
 import { t } from '../i18n/index.js';
 import { ageOn, createBodyEntryId } from '../core/body.js';
-import { optionalSkinfoldSites, protocolSites, sessionResults } from '../core/bodyComposition.js';
+import { cleanSkippedSites, optionalSkinfoldSites, protocolSites, sessionResults } from '../core/bodyComposition.js';
 import { MAX_BP_READINGS, averageReadings, readingsPeak, sameBloodPressure } from '../core/bloodPressure.js';
 import { effectiveHeightCm } from '../core/energy.js';
 import { addIgnoredFat } from '../core/healthMerge.js';
@@ -45,6 +45,7 @@ export function editDraftFor(session, now) {
     waistSite: session.waistSite,
     skinfolds: JSON.parse(JSON.stringify(session.skinfolds)),
     girths: { ...session.girths },
+    ...(session.skippedSkinfolds && session.skippedSkinfolds.length ? { skippedSkinfolds: [...session.skippedSkinfolds] } : {}),
     editingId: session.id,
     editingAt: session.at,
     updatedAt: now.getTime(),
@@ -58,6 +59,7 @@ export function sessionFromDraft(state, draft, now) {
   const sites = [...protocolSites(draft.protocol, draft.sex), ...optionalSkinfoldSites(draft.protocol, draft.sex)];
   const skinfolds = {};
   for (const site of sites) if (draft.skinfolds[site]) skinfolds[site] = [...draft.skinfolds[site]];
+  const skipped = draft.protocol === 'tape' ? [] : cleanSkippedSites(draft.skippedSkinfolds, protocolSites(draft.protocol, draft.sex)).filter((site) => !skinfolds[site]);
   let weightKg = Number.isFinite(draft.weightKg) ? draft.weightKg : null;
   if (weightKg === null && !editing && fresh) weightKg = fresh.kg;
   return {
@@ -71,6 +73,7 @@ export function sessionFromDraft(state, draft, now) {
     waistSite: draft.waistSite,
     skinfolds,
     girths: { ...draft.girths },
+    ...(skipped.length ? { skippedSkinfolds: skipped } : {}),
   };
 }
 

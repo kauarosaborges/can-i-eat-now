@@ -5,7 +5,7 @@ import { DEDUPE_KG, MAX_WEIGHT_ENTRIES, dedupeMeasurements } from './body.js';
 import { ENERGY_RETENTION_DAYS } from './energy.js';
 import { KNOWN_HEALTH_TYPES, LEGACY_GROUP_TYPES, requiredHealthTypes } from './healthMerge.js';
 import { MAX_MEALS, sanitizeMealName } from './meals.js';
-import { GIRTH_SITES, MAX_READINGS, MEASURE_SEXES, PROTOCOLS, SKINFOLD_SITES, WAIST_SITES, isValidGirth, isValidSkinfold } from './bodyComposition.js';
+import { GIRTH_SITES, MAX_READINGS, MEASURE_SEXES, PROTOCOLS, SKINFOLD_SITES, WAIST_SITES, cleanSkippedSites, isValidGirth, isValidSkinfold, protocolSites } from './bodyComposition.js';
 import { BP_ARMS, MAX_BP_READINGS, mergeBloodPressure, validateReading } from './bloodPressure.js';
 import { DEFAULT_REMINDER, REMINDER_DAY_LIMITS } from './measurementReminder.js';
 import { isValidMonthKey } from './measurementReport.js';
@@ -397,6 +397,11 @@ export function sanitizeGirths(input) {
   return result;
 }
 
+function sanitizeSkipped(input, allowed, skinfolds) {
+  const skipped = cleanSkippedSites(input, allowed).filter((site) => !skinfolds[site]);
+  return skipped.length > 0 ? { skippedSkinfolds: skipped } : {};
+}
+
 function validId(value) {
   return typeof value === 'string' && ID_PATTERN.test(value);
 }
@@ -422,6 +427,7 @@ function sanitizeSession(entry, index, nowMs) {
     waistSite: pick(entry.waistSite, WAIST_SITES, 'navel'),
     skinfolds,
     girths,
+    ...sanitizeSkipped(entry.skippedSkinfolds, protocolSites(entry.protocol, entry.sex), skinfolds),
   };
 }
 
@@ -451,14 +457,16 @@ function peakOf(entry, reading) {
 function sanitizeDraft(input, nowMs) {
   if (!isPlainObject(input) || !Number.isFinite(input.updatedAt) || nowMs - input.updatedAt > DRAFT_RETENTION_DAYS * 86400000) return null;
   if (!PROTOCOLS.includes(input.protocol)) return null;
+  const skinfolds = sanitizeSkinfolds(input.skinfolds);
   return {
     protocol: input.protocol,
     sex: MEASURE_SEXES.includes(input.sex) ? input.sex : null,
     step: clampInteger(input.step, 0, MAX_DRAFT_STEP, 0),
     weightKg: optionalNumber(input.weightKg, LIMITS.weightKg, 1),
     waistSite: pick(input.waistSite, WAIST_SITES, 'navel'),
-    skinfolds: sanitizeSkinfolds(input.skinfolds),
+    skinfolds,
     girths: sanitizeGirths(input.girths),
+    ...sanitizeSkipped(input.skippedSkinfolds, SKINFOLD_SITES, skinfolds),
     editingId: null,
     editingAt: null,
     updatedAt: input.updatedAt,

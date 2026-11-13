@@ -1,11 +1,11 @@
-import { t } from '../../i18n/index.js';
+import { hasKey, t } from '../../i18n/index.js';
 import { FOLD_DIRECTIONS, sessionResults } from '../../core/bodyComposition.js';
 import { classify, referenceFor } from '../../core/bodyReferences.js';
 import { categoryStatus, classifyBloodPressure } from '../../core/bloodPressure.js';
 import { reminderDue, reminderNotificationAt } from '../../core/measurementReminder.js';
 import { toDateKey } from '../../core/time.js';
 import { h, icon, pressable } from '../dom.js';
-import { formatDateShort, formatNumber, formatRelativeDay } from '../format.js';
+import { formatDateShort, formatList, formatNumber, formatRelativeDay } from '../format.js';
 import { parseDecimal } from '../forms.js';
 import { createSilhouette, siteView } from './bodySilhouette.js';
 
@@ -49,6 +49,16 @@ export function referenceText(reference, unit, decimals = 1) {
   return t('measure.reference.above', { min: fmt(min) });
 }
 
+export function fallbackNote(result) {
+  const skipped = result.skippedSkinfolds || [];
+  if (skipped.length === 0) return null;
+  const sites = formatList(skipped.map((site) => t(`measure.sites.skinfold.${site}.name`)));
+  if (result.fatSource === 'navy') return t(`measure.results.fatFallback.${skipped.length === 1 ? 'one' : 'other'}`, { sites });
+  if (!result.navyBlocker) return null;
+  const girths = formatList((result.missingNavyGirths || []).map((site) => t(`measure.sites.girth.${site}.name`).toLowerCase()));
+  return t(`measure.results.fatMissing.${result.navyBlocker}`, { sites, girths });
+}
+
 export function siteGuide(kind, site, { compact = false, sex = 'male' } = {}) {
   const name = t(`measure.sites.${kind}.${site}.name`);
   const view = t(`measure.views.${siteView(kind, site)}`);
@@ -61,6 +71,8 @@ export function siteGuide(kind, site, { compact = false, sex = 'male' } = {}) {
       { class: 'site-text' },
       compact ? null : h('h3', { class: 'site-name', text: name }),
       h('p', { class: 'site-how', text: t(`measure.sites.${kind}.${site}.how`) }),
+      hasKey(`measure.sites.${kind}.${site}.pinch`) ? h('p', { class: 'site-how', text: t(`measure.sites.${kind}.${site}.pinch`) }) : null,
+      !compact && hasKey(`measure.sites.${kind}.${site}.tip`) ? h('p', { class: 'site-tip', text: t(`measure.sites.${kind}.${site}.tip`) }) : null,
       kind === 'skinfold' && !compact ? h('span', { class: 'pill fold-chip', text: t(`measure.fold.${FOLD_DIRECTIONS[site]}`) }) : null,
     ),
   );

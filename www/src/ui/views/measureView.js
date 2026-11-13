@@ -1,11 +1,14 @@
-import { t } from '../../i18n/index.js';
+import { hasKey, t } from '../../i18n/index.js';
 import {
   GIRTH_LIMITS,
   GIRTH_SITES,
   MAX_READINGS,
   SKINFOLD_LIMITS,
+  cleanSkippedSites,
+  inconsistentReadings,
   isSiteComplete,
   isValidGirth,
+  navyGirthSites,
   isValidSkinfold,
   needsThirdReading,
   FOLD_DIRECTIONS,
@@ -15,11 +18,13 @@ import {
   siteValue,
 } from '../../core/bodyComposition.js';
 import { WEIGHT_LIMITS } from '../../core/body.js';
+import { effectiveHeightCm } from '../../core/energy.js';
 import { classify, referenceFor } from '../../core/bodyReferences.js';
 import { monthKeyOf } from '../../core/measurementReport.js';
 import { toDateKey } from '../../core/time.js';
+import { createCaliperSteps, createPinchDiagram } from '../components/pinchDiagram.js';
 import { subpageHeader } from '../components/subpageHeader.js';
-import { bigInput, formatDelta, formatMeasure, referenceText, siteGuide, statusPill } from '../components/measureParts.js';
+import { bigInput, fallbackNote, formatDelta, formatMeasure, referenceText, siteGuide, statusPill } from '../components/measureParts.js';
 import { clear, h, icon, pressable, setText } from '../dom.js';
 import { confirmDialog } from '../feedback.js';
 import { segmented } from '../forms.js';
@@ -42,14 +47,21 @@ function cloneDraft(draft) {
   return JSON.parse(JSON.stringify(draft));
 }
 
+export function skippedSites(draft) {
+  if (draft.protocol === 'tape') return [];
+  return cleanSkippedSites(draft.skippedSkinfolds, protocolSites(draft.protocol, draft.sex || 'male')).filter((site) => !(draft.skinfolds[site] && draft.skinfolds[site].length));
+}
+
 export function buildSteps(draft) {
   const steps = [{ type: 'setup' }];
   const sex = draft.sex || 'male';
   if (draft.protocol !== 'tape') {
+    steps.push({ type: 'caliperIntro' });
     for (const site of protocolSites(draft.protocol, sex)) steps.push({ type: 'skinfold', site, optional: false });
     for (const site of optionalSkinfoldSites(draft.protocol, sex)) steps.push({ type: 'skinfold', site, optional: true });
   }
-  for (const site of GIRTH_SITES) steps.push({ type: 'girth', site, optional: true });
+  const navySites = skippedSites(draft).length > 0 ? navyGirthSites(sex) : [];
+  for (const site of GIRTH_SITES) steps.push({ type: 'girth', site, optional: true, navy: navySites.includes(site) });
   steps.push({ type: 'results' });
   return steps;
 }
@@ -249,16 +261,41 @@ export function createMeasureView({ store, measureActions, goBack }) {
     ];
   }
 
+  function caliperIntroStep(index) {
+    return [
+      h(
+        'section',
+        { class: 'card stack measure-step' },
+        h('p', { class: 'view-eyebrow', text: t('measure.skinfoldKind') }),
+        h('h2', { class: 'measure-step-title', tabindex: '-1', text: t('measure.introTitle') }),
+        h('p', { class: 'field-hint', text: t('measure.introBody') }),
+        createCaliperSteps(),
+      ),
+      { nav: navRow({ index, onNext: () => goTo(index + 1), nextLabel: t('measure.introNext'), nextIcon: 'check' }) },
+    ];
+  }
+
   function skinfoldStep(step, index) {
     const site = step.site;
     const readings = [...(draft.skinfolds[site] || [])];
     const error = h('p', { class: 'field-error', role: 'alert' });
     const mean = h('p', { class: 'measure-mean', 'aria-live': 'polite' });
     const thirdHolder = h('div');
+    const spreadHint = h('p', { class: 'hint-card is-warning', role: 'note' }, icon('info'), h('span', { text: t('measure.spreadHint') }));
+    const skippedHint = h('p', { class: 'hint-card' }, icon('info'), h('span', { text: t('measure.skippedNote') }));
+    const isSkipped = () => (draft.skippedSkinfolds || []).includes(site);
+    const skipBlock = h('div', { class: 'measure-skip-row' });
+    const unskip = () => {
+      if (!isSkipped()) return;
+      draft.skippedSkinfolds = draft.skippedSkinfolds.filter((item) => item !== site);
+      if (draft.skippedSkinfolds.length === 0) delete draft.skippedSkinfolds;
+    };
     const commit = () => {
       const valid = readings.filter((value) => Number.isFinite(value));
-      if (valid.length > 0) draft.skinfolds[site] = valid.slice(0, MAX_READINGS);
-      else delete draft.skinfolds[site];
+      if (valid.length > 0) {
+        draft.skinfolds[site] = valid.slice(0, MAX_READINGS);
+        unskip();
+      } else delete draft.skinfolds[site];
       persist();
     };
     const refresh = () => {
@@ -267,6 +304,9 @@ export function createMeasureView({ store, measureActions, goBack }) {
       thirdHolder.hidden = !needThird;
       const value = siteValue(readings.filter(isValidSkinfold));
       setText(mean, value === null ? '' : t('measure.meanUsed', { value: formatMeasure(value, 'mm') }));
+      spreadHint.hidden = !inconsistentReadings(readings);
+      skippedHint.hidden = !isSkipped();
+      skipBlock.hidden = readings.some((item) => Number.isFinite(item));
     };
     const inputs = [0, 1, 2].map((slot) =>
       bigInput({
@@ -295,7 +335,7 @@ export function createMeasureView({ store, measureActions, goBack }) {
         setText(error, t('measure.skinfoldInvalid', SKINFOLD_LIMITS));
         return;
       }
-      if (filled.length === 0 && step.optional) {
+      if (filled.length === 0 && (step.optional || isSkipped())) {
         goTo(index + 1);
         return;
       }
@@ -307,6 +347,21 @@ export function createMeasureView({ store, measureActions, goBack }) {
     };
     const name = t(`measure.sites.skinfold.${site}.name`);
     const firstFold = index === buildSteps(draft).findIndex((item) => item.type === 'skinfold');
+    const askSkip = async () => {
+      const height = editing && Number.isFinite(draft.heightCm) ? draft.heightCm : effectiveHeightCm(store.state);
+      const body = t('measure.skipFoldBody', { site: name, girths: t(`measure.navyGirths.${draft.sex === 'female' ? 'female' : 'male'}`) });
+      const confirmed = await confirmDialog({
+        title: t('measure.skipFoldTitle'),
+        body: Number.isFinite(height) && height > 0 ? body : `${body} ${t('measure.skipFoldHeight')}`,
+        confirmLabel: t('measure.skipFoldConfirm'),
+      });
+      if (!confirmed) return;
+      delete draft.skinfolds[site];
+      draft.skippedSkinfolds = [...new Set([...(draft.skippedSkinfolds || []), site])];
+      goTo(index + 1);
+    };
+    const tipKey = `measure.sites.skinfold.${site}.tip`;
+    if (!step.optional) skipBlock.append(pressable(h('button', { type: 'button', class: 'button button-ghost button-small measure-skip-fold', text: t('measure.skipFold'), onClick: askSkip })), h('span', { class: 'field-hint', text: t('measure.skipFoldHint') }));
     return [
       h(
         'section',
@@ -314,11 +369,15 @@ export function createMeasureView({ store, measureActions, goBack }) {
         h('p', { class: 'view-eyebrow', text: step.optional ? t('measure.skinfoldOptional') : t('measure.skinfoldKind') }),
         h('div', { class: 'measure-title-row' }, h('h2', { class: 'measure-step-title', tabindex: '-1', text: name }), h('span', { class: 'pill fold-chip', text: t(`measure.fold.${FOLD_DIRECTIONS[site]}`) })),
         siteGuide('skinfold', site, { compact: true, sex: draft.sex }),
-        firstFold ? h('p', { class: 'hint-card' }, icon('info'), h('span', { text: t('measure.caliperTip') })) : null,
+        hasKey(tipKey) ? h('p', { class: 'hint-card' }, icon('info'), h('span', { text: t(tipKey) })) : null,
+        step.optional ? null : skipBlock,
+        skippedHint,
         h('div', { class: 'grid-2 measure-readings' }, inputs[0].element, inputs[1].element),
         thirdHolder,
         mean,
+        spreadHint,
         error,
+        h('details', { class: 'measure-grip', open: firstFold }, h('summary', { class: 'measure-grip-summary', text: t('measure.gripTitle') }), createPinchDiagram(site)),
       ),
       { nav: navRow({ index, onNext: next, optional: step.optional }) },
     ];
@@ -367,6 +426,7 @@ export function createMeasureView({ store, measureActions, goBack }) {
         h('h2', { class: 'measure-step-title', tabindex: '-1', text: name }),
         guide,
         site === GIRTH_SITES[0] ? h('p', { class: 'hint-card' }, icon('info'), h('span', { text: t('measure.tapeTip') })) : null,
+        step.navy ? h('p', { class: 'hint-card is-warning', role: 'note' }, icon('info'), h('span', { text: t('measure.navyNeeded') })) : null,
         input.element,
         error,
       ),
@@ -421,7 +481,8 @@ export function createMeasureView({ store, measureActions, goBack }) {
       }
     }
     if (!Number.isFinite(result.weightKg)) notes.push(t('measure.results.noWeight'));
-    const warning = result.outsideJpAge ? t('measure.results.ageNote') : null;
+    const fallback = fallbackNote(result);
+    const warning = result.outsideJpAge && result.fatSource !== 'navy' ? t('measure.results.ageNote') : null;
     if (result.muscleKg === null && result.protocol !== 'tape') notes.push(t('measure.results.muscleHint'));
     const save = (event) => {
       if (saving) return;
@@ -444,6 +505,7 @@ export function createMeasureView({ store, measureActions, goBack }) {
         'section',
         { class: 'card stack measure-step' },
         h('h2', { class: 'measure-step-title', tabindex: '-1', text: t('measure.resultsTitle') }),
+        fallback ? h('p', { class: 'hint-card is-warning', role: 'note' }, icon('info'), h('span', { text: fallback })) : null,
         warning ? h('p', { class: 'hint-card is-warning', role: 'note' }, icon('info'), h('span', { text: warning })) : null,
         rows.length ? h('ul', { class: 'result-list is-staggered' }, rows) : h('p', { class: 'empty-note', text: t('measure.results.empty') }),
         notes.map((note) => h('p', { class: 'field-note' }, icon('info'), h('span', { text: note }))),
@@ -481,6 +543,7 @@ export function createMeasureView({ store, measureActions, goBack }) {
     restart.hidden = !(resumed || editing || index > 0);
     let content;
     if (step.type === 'setup') content = setupStep(steps, index);
+    else if (step.type === 'caliperIntro') content = caliperIntroStep(index);
     else if (step.type === 'skinfold') content = skinfoldStep(step, index);
     else if (step.type === 'girth') content = girthStep(step, index);
     else content = resultsStep(index);

@@ -3063,3 +3063,290 @@ a.button {
 .pressure-fields {
   align-items: end;
 }
+
+.pinch-figure {
+  margin: 0;
+  display: grid;
+  gap: var(--space-2);
+  justify-items: center;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.pinch-diagram {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+}
+
+.pinch-caption {
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+
+.pinch-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.pinch-lens {
+  fill: var(--surface-raised);
+  stroke: var(--line-strong);
+  stroke-width: 1.2;
+}
+
+.pinch-fold {
+  fill: var(--accent-soft);
+  stroke: var(--accent-strong);
+  stroke-width: 1.2;
+}
+
+.pinch-ridge {
+  stroke: var(--accent-strong);
+  stroke-width: 1.4;
+  stroke-dasharray: 3 2.4;
+  stroke-linecap: round;
+}
+
+.pinch-ridge-end {
+  fill: none;
+  stroke: var(--accent-strong);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pinch-finger {
+  fill: var(--primary-soft);
+  stroke: var(--primary);
+  stroke-width: 1.4;
+}
+
+.pinch-arm {
+  fill: none;
+  stroke: var(--ink-soft);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pinch-caliper {
+  fill: var(--surface);
+  stroke: var(--ink-soft);
+  stroke-width: 1.6;
+}
+
+.pinch-jaw {
+  fill: var(--ink);
+}
+
+.pinch-mark {
+  fill: var(--primary);
+  stroke: var(--surface-raised);
+  stroke-width: 1;
+}
+
+.pinch-dimension {
+  fill: none;
+  stroke: var(--ink-muted);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+}
+
+.pinch-label {
+  font-family: var(--font-sans);
+  font-size: 9.5px;
+  font-weight: 650;
+  fill: var(--ink-soft);
+}
+
+.caliper-steps {
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  counter-reset: caliper-step;
+}
+
+.caliper-step {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  counter-increment: caliper-step;
+}
+
+.caliper-step-drawing {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.caliper-step-text {
+  display: grid;
+  gap: 2px;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
+
+.caliper-step-title {
+  color: var(--ink);
+  font-weight: 750;
+}
+
+.caliper-step-title::before {
+  content: counter(caliper-step) '. ';
+  color: var(--primary);
+}
+
+.caliper-skin {
+  fill: none;
+  stroke: var(--ink-muted);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.caliper-fold {
+  fill: var(--accent-soft);
+  stroke: var(--accent-strong);
+  stroke-width: 1.4;
+}
+
+.caliper-part {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.caliper-part.is-moving {
+  stroke: var(--primary);
+}
+
+.caliper-dial {
+  fill: var(--surface-raised);
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+
+.caliper-needle {
+  stroke: var(--accent-strong);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.caliper-arrow {
+  fill: none;
+  stroke: var(--accent-strong);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.caliper-contact {
+  fill: var(--accent);
+  stroke: var(--surface-raised);
+  stroke-width: 1;
+}
+
+.caliper-badge {
+  fill: var(--accent-soft);
+  stroke: var(--accent-strong);
+  stroke-width: 1;
+}
+
+.caliper-time {
+  fill: var(--ink);
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 9px;
+}
+
+.caliper-step-drawing.is-release .caliper-part.is-moving {
+  stroke: var(--accent-strong);
+}
+
+.measure-skip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.measure-grip {
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.measure-grip-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  color: var(--primary);
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius-md);
+}
+
+.measure-grip-summary::-webkit-details-marker {
+  display: none;
+}
+
+.measure-grip-summary::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--duration-base) var(--ease-out);
+}
+
+.measure-grip[open] > .measure-grip-summary::before {
+  transform: rotate(45deg);
+}
+
+.measure-grip-summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.measure-grip .pinch-figure {
+  padding-top: 0;
+}
+
+.pinch-name {
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .measure-grip-summary::before {
+    transition: none;
+  }
+}
+
+.measure-step .site-guide.is-compact {
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.measure-skip-row {
+  row-gap: 0;
+}
+
+.measure-skip-row .field-hint {
+  font-size: var(--text-xs);
+}

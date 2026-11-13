@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v14';
+const CACHE_VERSION = 'v15';
 const CACHE_NAME = `can-i-eat-now-${CACHE_VERSION}`;
 
 const PRECACHE = [
@@ -62,6 +62,7 @@ const PRECACHE = [
   'src/ui/components/barChart.js',
   'src/ui/components/bodySilhouette.js',
   'src/ui/components/measureParts.js',
+  'src/ui/components/pinchDiagram.js',
   'src/ui/components/subpageHeader.js',
   'src/ui/components/charts.js',
   'src/ui/components/eatSheet.js',
